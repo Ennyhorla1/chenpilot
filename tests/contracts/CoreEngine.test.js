@@ -64,14 +64,16 @@ describe("CoreEngine Emergency Logic", function () {
   }
   describe("Pause Functionality", function () {
     it("Should allow account with EMERGENCY_ROLE to pause", function () {
-      return __awaiter(this, void 0, void 0, function* () {
-        const { coreEngine, emergencyAccount } = yield (0,
-        hardhat_network_helpers_1.loadFixture)(deployCoreEngineFixture);
-        yield (0, chai_1.expect)(coreEngine.connect(emergencyAccount).pause())
-          .to.emit(coreEngine, "EmergencyPaused")
-          .withArgs(emergencyAccount.address);
-        (0, chai_1.expect)(yield coreEngine.isEmergencyPaused()).to.be.true;
-      });
+        return __awaiter(this, void 0, void 0, function* () {
+            const { coreEngine, emergencyAccount } = yield (0,
+            hardhat_network_helpers_1.loadFixture)(deployCoreEngineFixture);
+            const receipt = yield (yield coreEngine.connect(emergencyAccount).pause()).wait();
+            const event = receipt.logs.find(l => l.fragment && l.fragment.name === "EmergencyPaused");
+            (0, chai_1.expect)(event).to.not.be.undefined;
+            (0, chai_1.expect)(event === null || event === void 0 ? void 0 : event.args[0]).to.equal(1);
+            (0, chai_1.expect)(event === null || event === void 0 ? void 0 : event.args[1]).to.equal(emergencyAccount.address);
+            (0, chai_1.expect)(yield coreEngine.isEmergencyPaused()).to.be.true;
+        });
     });
     it("Should reject pause from unauthorized accounts", function () {
       return __awaiter(this, void 0, void 0, function* () {
@@ -91,9 +93,11 @@ describe("CoreEngine Emergency Logic", function () {
         const { coreEngine, emergencyAccount } = yield (0,
         hardhat_network_helpers_1.loadFixture)(deployCoreEngineFixture);
         yield coreEngine.connect(emergencyAccount).pause();
-        yield (0, chai_1.expect)(coreEngine.connect(emergencyAccount).unpause())
-          .to.emit(coreEngine, "EmergencyUnpaused")
-          .withArgs(emergencyAccount.address);
+        const receipt = yield (yield coreEngine.connect(emergencyAccount).unpause()).wait();
+        const event = receipt.logs.find(l => l.fragment && l.fragment.name === "EmergencyUnpaused");
+        (0, chai_1.expect)(event).to.not.be.undefined;
+        (0, chai_1.expect)(event === null || event === void 0 ? void 0 : event.args[0]).to.equal(1);
+        (0, chai_1.expect)(event === null || event === void 0 ? void 0 : event.args[1]).to.equal(emergencyAccount.address);
         (0, chai_1.expect)(yield coreEngine.isEmergencyPaused()).to.be.false;
       });
     });
@@ -141,13 +145,16 @@ describe("CoreEngine Emergency Logic", function () {
         yield coreEngine.connect(emergencyAccount).pause();
         // Withdraw principal
         const initialBalance = yield token.balanceOf(user.address);
-        yield (0, chai_1.expect)(
-          coreEngine.connect(user).emergencyWithdraw(tokenAddress)
-        )
-          .to.emit(coreEngine, "EmergencyWithdrawn")
-          .withArgs(user.address, tokenAddress, depositAmount);
+        const receipt = yield (yield coreEngine.connect(user).emergencyWithdraw(tokenAddress)).wait();
+        const event = receipt.logs.find(l => l.fragment && l.fragment.name === "EmergencyWithdrawn");
+        (0, chai_1.expect)(event).to.not.be.undefined;
+        (0, chai_1.expect)(event === null || event === void 0 ? void 0 : event.args[0]).to.equal(1);
+        (0, chai_1.expect)(event === null || event === void 0 ? void 0 : event.args[1]).to.equal(user.address);
+        (0, chai_1.expect)(event === null || event === void 0 ? void 0 : event.args[2]).to.equal(user.address);
+        (0, chai_1.expect)(event === null || event === void 0 ? void 0 : event.args[3]).to.equal(tokenAddress);
+        (0, chai_1.expect)(event === null || event === void 0 ? void 0 : event.args[4]).to.equal(depositAmount);
         (0, chai_1.expect)(yield token.balanceOf(user.address)).to.equal(
-          initialBalance + depositAmount
+            initialBalance + depositAmount
         );
         (0, chai_1.expect)(
           yield coreEngine.userPrincipal(user.address, tokenAddress)

@@ -200,13 +200,24 @@ export type VaultEventTopic =
   | "upg_prop"
   | "upg_cncl"
   | "upg_done"
-  | "adm_xfer";
+  | "adm_xfer"
+  | "deposit"
+  | "force_exit_req"
+  | "force_exit_done"
+  | "backend_status";
 
-export interface VaultEventInit {
-  topic: "init";
+export interface VaultEventBase {
+  topic: VaultEventTopic;
   contractId: string;
-  admin: string;
+  version: number;
   ledger: number;
+  actor: string;
+}
+
+export interface VaultEventInit extends VaultEventBase {
+  topic: "init";
+  admin: string;
+  vaultToken: string;
   txHash: string;
 }
 
@@ -261,36 +272,56 @@ export interface VaultEventRecovery {
 
 export interface VaultEventUpgradeProposed {
   topic: "upg_prop";
-  contractId: string;
   admin: string;
   newWasmHash: string;
   unlockLedger: number;
-  ledger: number;
   txHash: string;
 }
 
-export interface VaultEventUpgradeCancelled {
+export interface VaultEventUpgradeCancelled extends VaultEventBase {
   topic: "upg_cncl";
-  contractId: string;
   admin: string;
-  ledger: number;
   txHash: string;
 }
 
-export interface VaultEventUpgradeApplied {
+export interface VaultEventUpgradeApplied extends VaultEventBase {
   topic: "upg_done";
-  contractId: string;
   newWasmHash: string;
-  ledger: number;
   txHash: string;
 }
 
-export interface VaultEventAdminTransferred {
+export interface VaultEventAdminTransferred extends VaultEventBase {
   topic: "adm_xfer";
-  contractId: string;
   oldAdmin: string;
   newAdmin: string;
-  ledger: number;
+  txHash: string;
+}
+
+export interface VaultEventDeposit extends VaultEventBase {
+  topic: "deposit";
+  user: string;
+  amount: number;
+  txHash: string;
+}
+
+export interface VaultEventForceExitReq extends VaultEventBase {
+  topic: "force_exit_req";
+  user: string;
+  amount: number;
+  eligibleAt: number;
+  txHash: string;
+}
+
+export interface VaultEventForceExitDone extends VaultEventBase {
+  topic: "force_exit_done";
+  user: string;
+  amount: number;
+  txHash: string;
+}
+
+export interface VaultEventBackendStatus extends VaultEventBase {
+  topic: "backend_status";
+  online: boolean;
   txHash: string;
 }
 
@@ -304,12 +335,20 @@ export type VaultEvent =
   | VaultEventUpgradeProposed
   | VaultEventUpgradeCancelled
   | VaultEventUpgradeApplied
-  | VaultEventAdminTransferred;
+  | VaultEventAdminTransferred
+  | VaultEventDeposit
+  | VaultEventForceExitReq
+  | VaultEventForceExitDone
+  | VaultEventBackendStatus;
 
 // ─── Typed data shapes decoded from XDR ─────────────────────────────────────
 
-interface EvtInitData {
+interface VaultEvtInit {
+  version: number;
+  ledger: number;
+  actor: string;
   admin: string;
+  vault_token: string;
 }
 interface EvtDepositData {
   user: string;
@@ -334,15 +373,51 @@ interface EvtUpgPropData {
   new_wasm_hash: string;
   unlock_ledger: number;
 }
-interface EvtUpgCnclData {
-  admin: string;
+interface VaultEvtUpgCncl {
+  version: number;
+  ledger: number;
+  actor: string;
 }
-interface EvtUpgDoneData {
+interface VaultEvtUpgDone {
+  version: number;
+  ledger: number;
+  actor: string;
   new_wasm_hash: string;
 }
-interface EvtAdmXferData {
+interface VaultEvtAdmXfer {
+  version: number;
+  ledger: number;
+  actor: string;
   old_admin: string;
   new_admin: string;
+}
+interface VaultEvtDeposit {
+  version: number;
+  ledger: number;
+  actor: string;
+  user: string;
+  amount: number;
+}
+interface VaultEvtForceExitReq {
+  version: number;
+  ledger: number;
+  actor: string;
+  user: string;
+  amount: number;
+  eligible_at: number;
+}
+interface VaultEvtForceExitDone {
+  version: number;
+  ledger: number;
+  actor: string;
+  user: string;
+  amount: number;
+}
+interface VaultEvtBackendStatus {
+  version: number;
+  ledger: number;
+  actor: string;
+  online: boolean;
 }
 
 function str(v: unknown): string {
@@ -351,6 +426,9 @@ function str(v: unknown): string {
 function num(v: unknown): number {
   return typeof v === "number" ? v : Number(v ?? 0);
 }
+function bool(v: unknown): boolean {
+  return typeof v === "boolean" ? v : Boolean(v ?? false);
+}
 
 /**
  * Parse a raw SorobanEvent from core_vault into a typed VaultEvent.
@@ -358,15 +436,25 @@ function num(v: unknown): number {
  * Returns null for unrecognised topics.
  */
 export function parseVaultEvent(event: SorobanEvent): VaultEvent | null {
-  const topic = event.topics[0] as VaultEventTopic | undefined;
-  const contractId = str(event.topics[1]);
+  // Soroban topic layout: ["vault", "<action>", "<contract_id>"]
+  const action = event.topics[1] as VaultEventTopic | undefined;
+  const contractId = str(event.topics[2]);
   const { ledger, transactionHash: txHash } = event;
   const d = event.data as Record<string, unknown> | null;
 
-  switch (topic) {
+  switch (action) {
     case "init": {
-      const data = d as EvtInitData | null;
-      return { topic, contractId, admin: str(data?.admin), ledger, txHash };
+      const data = d as VaultEvtInit | null;
+      return {
+        topic: action,
+        contractId,
+        version: num(data?.version),
+        ledger,
+        actor: str(data?.actor),
+        admin: str(data?.admin),
+        vaultToken: str(data?.vault_token),
+        txHash,
+      };
     }
     case "deposit": {
       const data = d as EvtDepositData | null;
@@ -428,39 +516,105 @@ export function parseVaultEvent(event: SorobanEvent): VaultEvent | null {
       };
     }
     case "upg_prop": {
-      const data = d as EvtUpgPropData | null;
+      const data = d as VaultEvtUpgProp | null;
       return {
-        topic,
+        topic: action,
         contractId,
-        admin: str(data?.admin),
+        version: num(data?.version),
+        ledger,
+        actor: str(data?.actor),
+        admin: str(data?.actor),
         newWasmHash: str(data?.new_wasm_hash),
         unlockLedger: num(data?.unlock_ledger),
-        ledger,
         txHash,
       };
     }
     case "upg_cncl": {
-      const data = d as EvtUpgCnclData | null;
-      return { topic, contractId, admin: str(data?.admin), ledger, txHash };
+      const data = d as VaultEvtUpgCncl | null;
+      return {
+        topic: action,
+        contractId,
+        version: num(data?.version),
+        ledger,
+        actor: str(data?.actor),
+        admin: str(data?.actor),
+        txHash,
+      };
     }
     case "upg_done": {
-      const data = d as EvtUpgDoneData | null;
+      const data = d as VaultEvtUpgDone | null;
       return {
-        topic,
+        topic: action,
         contractId,
-        newWasmHash: str(data?.new_wasm_hash),
+        version: num(data?.version),
         ledger,
+        actor: str(data?.actor),
+        newWasmHash: str(data?.new_wasm_hash),
         txHash,
       };
     }
     case "adm_xfer": {
-      const data = d as EvtAdmXferData | null;
+      const data = d as VaultEvtAdmXfer | null;
       return {
-        topic,
+        topic: action,
         contractId,
+        version: num(data?.version),
+        ledger,
+        actor: str(data?.actor),
         oldAdmin: str(data?.old_admin),
         newAdmin: str(data?.new_admin),
+        txHash,
+      };
+    }
+    case "deposit": {
+      const data = d as VaultEvtDeposit | null;
+      return {
+        topic: action,
+        contractId,
+        version: num(data?.version),
         ledger,
+        actor: str(data?.actor),
+        user: str(data?.user),
+        amount: num(data?.amount),
+        txHash,
+      };
+    }
+    case "force_exit_req": {
+      const data = d as VaultEvtForceExitReq | null;
+      return {
+        topic: action,
+        contractId,
+        version: num(data?.version),
+        ledger,
+        actor: str(data?.actor),
+        user: str(data?.user),
+        amount: num(data?.amount),
+        eligibleAt: num(data?.eligible_at),
+        txHash,
+      };
+    }
+    case "force_exit_done": {
+      const data = d as VaultEvtForceExitDone | null;
+      return {
+        topic: action,
+        contractId,
+        version: num(data?.version),
+        ledger,
+        actor: str(data?.actor),
+        user: str(data?.user),
+        amount: num(data?.amount),
+        txHash,
+      };
+    }
+    case "backend_status": {
+      const data = d as VaultEvtBackendStatus | null;
+      return {
+        topic: action,
+        contractId,
+        version: num(data?.version),
+        ledger,
+        actor: str(data?.actor),
+        online: bool(data?.online),
         txHash,
       };
     }
@@ -534,6 +688,19 @@ export function reconstructVaultState(events: VaultEvent[]): VaultState {
         break;
       case "adm_xfer":
         state.admin = e.newAdmin;
+        break;
+      case "deposit":
+        state.deposits[e.user] = (state.deposits[e.user] || 0) + e.amount;
+        break;
+      case "force_exit_req":
+        state.forceExits[e.user] = { amount: e.amount, eligibleAt: e.eligibleAt };
+        break;
+      case "force_exit_done":
+        delete state.deposits[e.user];
+        state.forceExits[e.user] = null;
+        break;
+      case "backend_status":
+        state.backendOnline = e.online;
         break;
     }
   }

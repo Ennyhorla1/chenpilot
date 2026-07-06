@@ -78,6 +78,123 @@ pub struct PriceSnapshot {
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtInit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub oracle: Address,
+    pub guarded_asset: Address,
+    pub max_intra_ledger_deviation_bps: i128,
+    pub min_ledger_gap: u32,
+    pub max_oracle_staleness_seconds: u64,
+    pub max_consecutive_price_change_bps: i128,
+    pub max_oracle_update_gap_seconds: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtCfgUpd {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub oracle: Address,
+    pub guarded_asset: Address,
+    pub max_intra_ledger_deviation_bps: i128,
+    pub min_ledger_gap: u32,
+    pub max_oracle_staleness_seconds: u64,
+    pub max_consecutive_price_change_bps: i128,
+    pub max_oracle_update_gap_seconds: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtSnapshot {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub price: i128,
+    pub oracle_timestamp: u64,
+    pub oracle_sequence: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtStalePrc {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub oracle_timestamp: u64,
+    pub current_time: u64,
+    pub max_staleness: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtSeqAttk {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub prev_seq: u64,
+    pub new_seq: u64,
+    pub price_diff: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtStaleUpd {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub prev_timestamp: u64,
+    pub current_time: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtPriceSafe {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub snap_price: i128,
+    pub current_price: i128,
+    pub deviation_bps: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtStaleChk {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub snap_timestamp: u64,
+    pub current_time: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtTimEdge {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub snap_ledger: u32,
+    pub current_ledger: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtFlashBlk {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub snap_price: i128,
+    pub current_price: i128,
+    pub deviation_bps: i128,
+}
+
 #[contract]
 pub struct FlashLoanGuardContract;
 
@@ -88,12 +205,46 @@ impl FlashLoanGuardContract {
             panic!("already initialized");
         }
         env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("flg"), symbol_short!("init")),
+            EvtInit {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: config.admin.clone(),
+                admin: config.admin.clone(),
+                oracle: config.oracle.clone(),
+                guarded_asset: config.guarded_asset.clone(),
+                max_intra_ledger_deviation_bps: config.max_intra_ledger_deviation_bps,
+                min_ledger_gap: config.min_ledger_gap,
+                max_oracle_staleness_seconds: config.max_oracle_staleness_seconds,
+                max_consecutive_price_change_bps: config.max_consecutive_price_change_bps,
+                max_oracle_update_gap_seconds: config.max_oracle_update_gap_seconds,
+            },
+        );
     }
 
     pub fn update_config(env: Env, config: Config) {
         let current: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
         current.admin.require_auth();
         env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("flg"), symbol_short!("cfg_upd")),
+            EvtCfgUpd {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: current.admin.clone(),
+                admin: config.admin.clone(),
+                oracle: config.oracle.clone(),
+                guarded_asset: config.guarded_asset.clone(),
+                max_intra_ledger_deviation_bps: config.max_intra_ledger_deviation_bps,
+                min_ledger_gap: config.min_ledger_gap,
+                max_oracle_staleness_seconds: config.max_oracle_staleness_seconds,
+                max_consecutive_price_change_bps: config.max_consecutive_price_change_bps,
+                max_oracle_update_gap_seconds: config.max_oracle_update_gap_seconds,
+            },
+        );
     }
 
     /// Record a fresh price snapshot from the oracle.
@@ -112,8 +263,15 @@ impl FlashLoanGuardContract {
         // --- Check oracle freshness (not stale) first ---
         if current_time > oracle_timestamp + config.max_oracle_staleness_seconds {
             env.events().publish(
-                (symbol_short!("StalePrc"),),
-                (oracle_timestamp, current_time, config.max_oracle_staleness_seconds),
+                (symbol_short!("flg"), symbol_short!("stale_prc")),
+                EvtStalePrc {
+                    version: 1,
+                    ledger: current_ledger,
+                    actor: config.admin.clone(),
+                    oracle_timestamp,
+                    current_time,
+                    max_staleness: config.max_oracle_staleness_seconds,
+                },
             );
             panic!("flash-loan guard: oracle data too stale (freshness check failed)");
         }
@@ -152,8 +310,15 @@ impl FlashLoanGuardContract {
 
             if price_diff > config.max_consecutive_price_change_bps {
                 env.events().publish(
-                    (symbol_short!("SeqAttk"),),
-                    (snap.oracle_sequence, oracle_sequence, price_diff),
+                    (symbol_short!("flg"), symbol_short!("seq_attk")),
+                    EvtSeqAttk {
+                        version: 1,
+                        ledger: current_ledger,
+                        actor: config.admin.clone(),
+                        prev_seq: snap.oracle_sequence,
+                        new_seq: oracle_sequence,
+                        price_diff,
+                    },
                 );
                 panic!("flash-loan guard: consecutive price change exceeds threshold (sequencing attack)");
             }
@@ -161,8 +326,14 @@ impl FlashLoanGuardContract {
             // NEW: Check delayed update timeout
             if current_time > snap.oracle_timestamp + config.max_oracle_update_gap_seconds {
                 env.events().publish(
-                    (symbol_short!("StaleUpd"),),
-                    (snap.oracle_timestamp, current_time),
+                    (symbol_short!("flg"), symbol_short!("stale_upd")),
+                    EvtStaleUpd {
+                        version: 1,
+                        ledger: current_ledger,
+                        actor: config.admin.clone(),
+                        prev_timestamp: snap.oracle_timestamp,
+                        current_time,
+                    },
                 );
                 panic!("flash-loan guard: oracle update gap exceeded (delayed update detected)");
             }
@@ -179,7 +350,17 @@ impl FlashLoanGuardContract {
             },
         );
 
-        env.events().publish((symbol_short!("Snapshot"),), (price, current_ledger, oracle_timestamp, oracle_sequence));
+        env.events().publish(
+            (symbol_short!("flg"), symbol_short!("snapshot")),
+            EvtSnapshot {
+                version: 1,
+                ledger: current_ledger,
+                actor: config.admin.clone(),
+                price,
+                oracle_timestamp,
+                oracle_sequence,
+            },
+        );
     }
 
     /// Core flash-loan guard check.
@@ -216,8 +397,14 @@ impl FlashLoanGuardContract {
         // --- NEW: Oracle freshness validation (detect stale data) ---
         if current_time > snap.oracle_timestamp + config.max_oracle_staleness_seconds {
             env.events().publish(
-                (symbol_short!("StaleChk"),),
-                (snap.oracle_timestamp, current_time),
+                (symbol_short!("flg"), symbol_short!("stale_chk")),
+                EvtStaleChk {
+                    version: 1,
+                    ledger: current_ledger,
+                    actor: config.admin.clone(),
+                    snap_timestamp: snap.oracle_timestamp,
+                    current_time,
+                },
             );
             panic!("flash-loan guard: oracle data stale during assert_price_safe");
         }
@@ -226,8 +413,14 @@ impl FlashLoanGuardContract {
         // If snapshot is too old relative to current ledger, reject as safety measure
         if current_ledger > snap.ledger + (config.max_oracle_update_gap_seconds / 5) as u32 {
             env.events().publish(
-                (symbol_short!("TimEdge"),),
-                (snap.ledger, current_ledger),
+                (symbol_short!("flg"), symbol_short!("tim_edge")),
+                EvtTimEdge {
+                    version: 1,
+                    ledger: current_ledger,
+                    actor: config.admin.clone(),
+                    snap_ledger: snap.ledger,
+                    current_ledger,
+                },
             );
             panic!("flash-loan guard: snapshot too old (ledger timing edge case)");
         }
@@ -251,15 +444,29 @@ impl FlashLoanGuardContract {
 
         if deviation_bps > config.max_intra_ledger_deviation_bps {
             env.events().publish(
-                (symbol_short!("FlashBlk"),),
-                (snap.price, current_price, deviation_bps),
+                (symbol_short!("flg"), symbol_short!("flash_blk")),
+                EvtFlashBlk {
+                    version: 1,
+                    ledger: current_ledger,
+                    actor: config.admin.clone(),
+                    snap_price: snap.price,
+                    current_price,
+                    deviation_bps,
+                },
             );
             panic!("flash-loan guard: price deviation exceeds threshold");
         }
 
         env.events().publish(
-            (symbol_short!("PriceSafe"),),
-            (snap.price, current_price, deviation_bps),
+            (symbol_short!("flg"), symbol_short!("price_safe")),
+            EvtPriceSafe {
+                version: 1,
+                ledger: current_ledger,
+                actor: config.admin.clone(),
+                snap_price: snap.price,
+                current_price,
+                deviation_bps,
+            },
         );
 
         current_price

@@ -1,5 +1,7 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, token, symbol_short};
+use soroban_sdk::{
+    contract, contractimpl, contracttype, Address, Env, token, symbol_short,
+};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,6 +39,70 @@ pub struct Config {
     pub unbonding_period: u64,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtInit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub staking_token: Address,
+    pub treasury: Address,
+    pub slashing_bps: u32,
+    pub unbonding_period: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtStake {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub relayer: Address,
+    pub stake_amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtUnstake {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub relayer: Address,
+    pub requested_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtDispute {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub relayer: Address,
+    pub dispute_count: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtSlashed {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub relayer: Address,
+    pub slash_amount: i128,
+    pub new_stake: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtWithdraw {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub relayer: Address,
+    pub withdrawn_amount: i128,
+}
+
 #[contract]
 pub struct RelayerSlashingContract;
 
@@ -54,12 +120,26 @@ impl RelayerSlashingContract {
             panic!("Already initialized");
         }
         env.storage().instance().set(&DataKey::Config, &Config {
-            admin,
-            staking_token,
-            treasury,
+            admin: admin.clone(),
+            staking_token: staking_token.clone(),
+            treasury: treasury.clone(),
             slashing_bps,
             unbonding_period,
         });
+
+        env.events().publish(
+            (symbol_short!("relayer"), symbol_short!("init")),
+            EvtInit {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: admin,
+                admin: admin.clone(),
+                staking_token,
+                treasury,
+                slashing_bps,
+                unbonding_period,
+            },
+        );
     }
 
     pub fn register_relayer(env: Env, relayer: Address, amount: i128) {
@@ -81,7 +161,16 @@ impl RelayerSlashingContract {
         info.stake_amount += amount;
         info.last_transition_at = now;
         env.storage().persistent().set(&DataKey::Relayer(relayer.clone()), &info);
-        env.events().publish((symbol_short!("relayer"), symbol_short!("stake")), (relayer, info.stake_amount));
+        env.events().publish(
+            (symbol_short!("relayer"), symbol_short!("stake")),
+            EvtStake {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: relayer.clone(),
+                relayer,
+                stake_amount: info.stake_amount,
+            },
+        );
     }
 
     pub fn request_unstake(env: Env, relayer: Address) {
@@ -91,7 +180,16 @@ impl RelayerSlashingContract {
         info.unstake_requested_at = env.ledger().timestamp();
         info.last_transition_at = info.unstake_requested_at;
         env.storage().persistent().set(&DataKey::Relayer(relayer.clone()), &info);
-        env.events().publish((symbol_short!("relayer"), symbol_short!("unstake")), (relayer, info.unstake_requested_at));
+        env.events().publish(
+            (symbol_short!("relayer"), symbol_short!("unstake")),
+            EvtUnstake {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: relayer.clone(),
+                relayer,
+                requested_at: info.unstake_requested_at,
+            },
+        );
     }
 
     pub fn dispute_relayer(env: Env, relayer: Address) {
@@ -102,7 +200,16 @@ impl RelayerSlashingContract {
         info.dispute_count = info.dispute_count.saturating_add(1);
         info.last_transition_at = env.ledger().timestamp();
         env.storage().persistent().set(&DataKey::Relayer(relayer.clone()), &info);
-        env.events().publish((symbol_short!("relayer"), symbol_short!("dispute")), (relayer, info.dispute_count));
+        env.events().publish(
+            (symbol_short!("relayer"), symbol_short!("dispute")),
+            EvtDispute {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: config.admin.clone(),
+                relayer,
+                dispute_count: info.dispute_count,
+            },
+        );
     }
 
     pub fn slash_relayer(env: Env, relayer: Address) {
@@ -120,7 +227,17 @@ impl RelayerSlashingContract {
         let token_client = token::Client::new(&env, &config.staking_token);
         token_client.transfer(&env.current_contract_address(), &config.treasury, &slash_amount);
         env.storage().persistent().set(&DataKey::Relayer(relayer.clone()), &info);
-        env.events().publish((symbol_short!("relayer"), symbol_short!("slashed")), (relayer, slash_amount, info.stake_amount));
+        env.events().publish(
+            (symbol_short!("relayer"), symbol_short!("slashed")),
+            EvtSlashed {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: config.admin.clone(),
+                relayer,
+                slash_amount,
+                new_stake: info.stake_amount,
+            },
+        );
     }
 
     pub fn withdraw_stake(env: Env, relayer: Address) {
@@ -142,7 +259,16 @@ impl RelayerSlashingContract {
         token_client.transfer(&env.current_contract_address(), &relayer, &info.stake_amount);
         let withdrawn = RelayerInfo { status: RelayerStatus::Withdrawn, ..info };
         env.storage().persistent().set(&DataKey::Relayer(relayer.clone()), &withdrawn);
-        env.events().publish((symbol_short!("relayer"), symbol_short!("withdraw")), (relayer, withdrawn.stake_amount));
+        env.events().publish(
+            (symbol_short!("relayer"), symbol_short!("withdraw")),
+            EvtWithdraw {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: relayer.clone(),
+                relayer,
+                withdrawn_amount: withdrawn.stake_amount,
+            },
+        );
     }
 
     pub fn get_relayer_info(env: Env, relayer: Address) -> Option<RelayerInfo> {

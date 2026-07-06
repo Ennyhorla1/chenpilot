@@ -21,6 +21,35 @@ pub trait IntentMarketValidatorTrait {
     fn get_config(env: Env) -> ValidationConfig;
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtInit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub threshold_bps: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtCfgUpd {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub threshold_bps: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtDevAlert {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub market_value: i128,
+    pub intent_value: i128,
+    pub deviation_bps: i128,
+}
+
 #[contract]
 pub struct IntentMarketValidatorContract;
 
@@ -32,6 +61,16 @@ impl IntentMarketValidatorContract {
         }
         let config = ValidationConfig { threshold_bps };
         env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("intent"), symbol_short!("init")),
+            EvtInit {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: env.current_contract_address(),
+                threshold_bps,
+            },
+        );
     }
 
     pub fn validate(env: Env, intent_value: i128, market_value: i128) -> bool {
@@ -55,8 +94,15 @@ impl IntentMarketValidatorContract {
 
         if deviation_bps > config.threshold_bps as i128 {
             env.events().publish(
-                (symbol_short!("DevAlert"),),
-                (market_value, intent_value, deviation_bps)
+                (symbol_short!("intent"), symbol_short!("dev_alert")),
+                EvtDevAlert {
+                    version: 1,
+                    ledger: env.ledger().sequence(),
+                    actor: env.current_contract_address(),
+                    market_value,
+                    intent_value,
+                    deviation_bps,
+                },
             );
             panic!("Intent vs Market: deviation exceeds threshold");
         }
@@ -67,6 +113,16 @@ impl IntentMarketValidatorContract {
     pub fn update_config(env: Env, config: ValidationConfig) {
         let _current: ValidationConfig = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
         env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("intent"), symbol_short!("cfg_upd")),
+            EvtCfgUpd {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: env.current_contract_address(),
+                threshold_bps: config.threshold_bps,
+            },
+        );
     }
 
     pub fn get_config(env: Env) -> ValidationConfig {

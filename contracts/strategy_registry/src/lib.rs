@@ -1,5 +1,5 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, Env, Address, BytesN, Vec};
+use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Env, Address, BytesN, Vec};
 
 // TTL for vote data: ~7 days (1_209_600 ledgers at 5s/ledger)
 // Votes decay over time to encourage fresh strategy voting and prevent stale governance
@@ -16,6 +16,54 @@ pub enum DataKey {
     VotedPools,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtInit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtAgentSet {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub ai_agent: Address,
+    pub authorized: bool,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtPoolAdd {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub pool_id: BytesN<32>,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtPoolRm {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub pool_id: BytesN<32>,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtVote {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub ai_agent: Address,
+    pub pool_id: BytesN<32>,
+    pub total_votes: u32,
+}
+
 #[contract]
 pub struct StrategyRegistryContract;
 
@@ -27,27 +75,68 @@ impl StrategyRegistryContract {
             panic!("already initialized");
         }
         env.storage().instance().set(&DataKey::Admin, &admin);
+
+        env.events().publish(
+            (symbol_short!("strat"), symbol_short!("init")),
+            EvtInit {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: admin.clone(),
+                admin,
+            },
+        );
     }
 
     /// Set an AI agent's authorization status (Admin only)
     pub fn set_ai_agent(env: Env, ai_agent: Address, authorized: bool) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
-        env.storage().instance().set(&DataKey::AiAgent(ai_agent), &authorized);
+        env.storage().instance().set(&DataKey::AiAgent(ai_agent.clone()), &authorized);
+
+        env.events().publish(
+            (symbol_short!("strat"), symbol_short!("agent_set")),
+            EvtAgentSet {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: admin.clone(),
+                ai_agent,
+                authorized,
+            },
+        );
     }
 
     /// Add a verified pool (Admin only)
     pub fn add_verified_pool(env: Env, pool_id: BytesN<32>) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
-        env.storage().instance().set(&DataKey::VerifiedPool(pool_id), &true);
+        env.storage().instance().set(&DataKey::VerifiedPool(pool_id.clone()), &true);
+
+        env.events().publish(
+            (symbol_short!("strat"), symbol_short!("pool_add")),
+            EvtPoolAdd {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: admin.clone(),
+                pool_id,
+            },
+        );
     }
 
     /// Remove a verified pool (Admin only)
     pub fn remove_verified_pool(env: Env, pool_id: BytesN<32>) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
-        env.storage().instance().remove(&DataKey::VerifiedPool(pool_id));
+        env.storage().instance().remove(&DataKey::VerifiedPool(pool_id.clone()));
+
+        env.events().publish(
+            (symbol_short!("strat"), symbol_short!("pool_rm")),
+            EvtPoolRm {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: admin.clone(),
+                pool_id,
+            },
+        );
     }
 
     /// Check if a pool is verified
@@ -95,6 +184,18 @@ impl StrategyRegistryContract {
         }
         
         env.storage().instance().set(&DataKey::CurrentStrategy, &best_pool);
+
+        env.events().publish(
+            (symbol_short!("strat"), symbol_short!("vote")),
+            EvtVote {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: ai_agent.clone(),
+                ai_agent,
+                pool_id,
+                total_votes: votes,
+            },
+        );
     }
 
     /// Get the current chosen strategy

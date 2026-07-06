@@ -54,6 +54,41 @@ pub struct Config {
     pub crypto_contract: Address,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtInit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub wrapped_btc_token: Address,
+    pub min_confirmations: u32,
+    pub crypto_contract: Address,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtCfgUpd {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub wrapped_btc_token: Address,
+    pub min_confirmations: u32,
+    pub crypto_contract: Address,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtRelayOk {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub tx_id: BytesN<32>,
+    pub recipient: Address,
+    pub amount_sat: i128,
+}
+
 // ---------------------------------------------------------------------------
 // SPV proof submitted by the relayer
 // ---------------------------------------------------------------------------
@@ -96,7 +131,20 @@ impl BtcRelayContract {
         }
         env.storage().instance().set(
             &DataKey::Config,
-            &Config { admin, wrapped_btc_token, min_confirmations, crypto_contract },
+            &Config { admin: admin.clone(), wrapped_btc_token: wrapped_btc_token.clone(), min_confirmations, crypto_contract: crypto_contract.clone() },
+        );
+
+        env.events().publish(
+            (symbol_short!("btc"), symbol_short!("init")),
+            EvtInit {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: admin.clone(),
+                admin,
+                wrapped_btc_token,
+                min_confirmations,
+                crypto_contract,
+            },
         );
     }
 
@@ -105,6 +153,19 @@ impl BtcRelayContract {
         let current: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
         current.admin.require_auth();
         env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("btc"), symbol_short!("cfg_upd")),
+            EvtCfgUpd {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: current.admin.clone(),
+                admin: config.admin.clone(),
+                wrapped_btc_token: config.wrapped_btc_token.clone(),
+                min_confirmations: config.min_confirmations,
+                crypto_contract: config.crypto_contract.clone(),
+            },
+        );
     }
 
     /// Core SPV verification gate.
@@ -160,8 +221,15 @@ impl BtcRelayContract {
 
         // --- 7. Emit success event ---
         env.events().publish(
-            (symbol_short!("RelayOk"),),
-            (proof.tx_id.clone(), proof.recipient.clone(), proof.amount_sat),
+            (symbol_short!("btc"), symbol_short!("relay_ok")),
+            EvtRelayOk {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: config.admin.clone(),
+                tx_id: proof.tx_id.clone(),
+                recipient: proof.recipient.clone(),
+                amount_sat: proof.amount_sat,
+            },
         );
 
         (proof.recipient, proof.amount_sat)

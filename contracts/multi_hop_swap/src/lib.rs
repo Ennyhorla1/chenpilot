@@ -5,7 +5,6 @@ use soroban_sdk::{contract, contractimpl, contracttype, contractclient, symbol_s
 // Pool state is extended on each swap to remain active; inactive pools expire and reset.
 const POOL_STATE_TTL_LEDGERS: u32 = 6_048_000;
 
-/// One leg of a swap route.
 #[contracttype]
 #[derive(Clone)]
 pub struct Hop {
@@ -16,7 +15,6 @@ pub struct Hop {
     pub min_amount_out: i128,
 }
 
-/// Result of a single hop execution.
 #[contracttype]
 #[derive(Clone)]
 pub struct HopResult {
@@ -25,6 +23,29 @@ pub struct HopResult {
     pub token_out: Address,
     pub amount_in: i128,
     pub amount_out: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtHop {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub pool: Address,
+    pub token_in: Address,
+    pub token_out: Address,
+    pub amount_in: i128,
+    pub amount_out: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtSwapDone {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub total_amount_in: i128,
+    pub total_amount_out: i128,
 }
 
 /// Pool interface trait — downstream pools must implement this.
@@ -85,6 +106,21 @@ impl MultiHopSwap {
                 panic!("slippage exceeded");
             }
 
+            // Emit per-hop event
+            env.events().publish(
+                (symbol_short!("swap"), symbol_short!("hop")),
+                EvtHop {
+                    version: 1,
+                    ledger: env.ledger().sequence(),
+                    actor: caller.clone(),
+                    pool: hop.pool.clone(),
+                    token_in: hop.token_in.clone(),
+                    token_out: hop.token_out.clone(),
+                    amount_in,
+                    amount_out,
+                },
+            );
+
             // Record result
             results.push_back(HopResult {
                 pool: hop.pool.clone(),
@@ -96,18 +132,23 @@ impl MultiHopSwap {
 
             // Update current amount for next hop
             current_amount = amount_out;
-
-            // Emit event
-            env.events().publish(
-                (symbol_short!("hop"), hop.pool.clone()),
-                (hop.token_in.clone(), hop.token_out.clone(), amount_in, amount_out),
-            );
         }
 
         // Transfer final output to caller
         let last_hop = hops.last().unwrap();
         let token_out_client = token::Client::new(&env, &last_hop.token_out);
         token_out_client.transfer(&contract_address, &caller, &current_amount);
+
+        env.events().publish(
+            (symbol_short!("swap"), symbol_short!("done")),
+            EvtSwapDone {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: caller,
+                total_amount_in: hops.get(0).map(|h| h.amount_in).unwrap_or(0),
+                total_amount_out: current_amount,
+            },
+        );
 
         // Record last output amount in instance storage for convenience
         env.storage()

@@ -17,7 +17,12 @@ contract CoreEngine is EmergencyControl, ReentrancyGuard {
     // Authorized client addresses for event consumption
     mapping(address => bool) public authorizedClients;
 
-    /// @dev Only owner can manage authorized clients
+    /// @dev Only owner (DEFAULT_ADMIN_ROLE) can manage authorized clients
+    modifier onlyOwner() {
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Not owner");
+        _;
+    }
+
     modifier onlyAuthorizedClient() {
         require(authorizedClients[msg.sender], "Not authorized client");
         _;
@@ -26,11 +31,13 @@ contract CoreEngine is EmergencyControl, ReentrancyGuard {
     /// @dev Owner can grant client permission
     function grantClient(address client) external onlyOwner {
         authorizedClients[client] = true;
+        emit ClientAuthorized(EVENT_VERSION, msg.sender, client);
     }
 
     /// @dev Owner can revoke client permission
     function revokeClient(address client) external onlyOwner {
         authorizedClients[client] = false;
+        emit ClientRevoked(EVENT_VERSION, msg.sender, client);
     }
 
     using SafeERC20 for IERC20;
@@ -38,10 +45,12 @@ contract CoreEngine is EmergencyControl, ReentrancyGuard {
     // Track user principal deposits (excluding yield/gains)
     mapping(address => mapping(address => uint256)) public userPrincipal;
 
-    event Deposited(uint256 version, address indexed user, address indexed token, uint256 amount);
-    event Swapped(uint256 version, address indexed user, address indexed fromToken, address indexed toToken, uint256 amount);
-    event Rebalanced(uint256 version, address indexed user, address[] tokens, uint256[] amounts);
-    event EmergencyWithdrawn(uint256 version, address indexed user, address indexed token, uint256 amount);
+    event Deposited(uint256 indexed version, address indexed actor, address indexed user, address indexed token, uint256 amount);
+    event Swapped(uint256 indexed version, address indexed actor, address indexed user, address indexed fromToken, address indexed toToken, uint256 amount);
+    event Rebalanced(uint256 indexed version, address indexed actor, address indexed user, address[] tokens, uint256[] amounts);
+    event EmergencyWithdrawn(uint256 indexed version, address indexed actor, address indexed user, address indexed token, uint256 amount);
+    event ClientAuthorized(uint256 indexed version, address indexed actor, address indexed client);
+    event ClientRevoked(uint256 indexed version, address indexed actor, address indexed client);
 
     /**
      * @dev Deposit principal into the contract.
@@ -52,7 +61,7 @@ contract CoreEngine is EmergencyControl, ReentrancyGuard {
         require(amount > 0, "Amount must be greater than zero");
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         userPrincipal[msg.sender][token] += amount;
-        emit Deposited(EVENT_VERSION, msg.sender, token, amount);
+        emit Deposited(EVENT_VERSION, msg.sender, msg.sender, token, amount);
     }
 
     /**
@@ -65,7 +74,7 @@ contract CoreEngine is EmergencyControl, ReentrancyGuard {
         require(amount > 0, "Amount must be greater than zero");
         // AI-driven swap logic would go here
         // For this task, we assume the logic exists and ensure it is gated.
-        emit Swapped(EVENT_VERSION, msg.sender, fromToken, toToken, amount);
+        emit Swapped(EVENT_VERSION, msg.sender, msg.sender, fromToken, toToken, amount);
     }
 
     /**
@@ -76,7 +85,7 @@ contract CoreEngine is EmergencyControl, ReentrancyGuard {
     function rebalance(address[] calldata tokens, uint256[] calldata amounts) external whenNotPaused nonReentrant {
         require(tokens.length == amounts.length, "Invalid input lengths");
         // Rebalancing logic would go here
-        emit Rebalanced(EVENT_VERSION, msg.sender, tokens, amounts);
+        emit Rebalanced(EVENT_VERSION, msg.sender, msg.sender, tokens, amounts);
     }
 
     /**
@@ -95,6 +104,6 @@ contract CoreEngine is EmergencyControl, ReentrancyGuard {
         // Perform the transfer
         IERC20(token).safeTransfer(msg.sender, principal);
 
-        emit EmergencyWithdrawn(EVENT_VERSION, msg.sender, token, principal);
+        emit EmergencyWithdrawn(EVENT_VERSION, msg.sender, msg.sender, token, principal);
     }
 }

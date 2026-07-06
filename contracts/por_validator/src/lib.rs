@@ -54,6 +54,52 @@ pub struct Config {
     pub max_stale_ledgers: u32,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtInit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub wbtc_token: Address,
+    pub oracle: Address,
+    pub tolerance_bps: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtCfgUpd {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub oracle: Address,
+    pub tolerance_bps: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtSafetyCfg {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub proof_cadence_ledgers: u32,
+    pub max_stale_ledgers: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtProof {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub is_valid: bool,
+    pub balance: i128,
+    pub circulating_supply: i128,
+    pub verified_ledger: u32,
+    pub valid_until_ledger: u32,
+}
+
 #[contract]
 pub struct PoRValidatorContract;
 
@@ -70,20 +116,45 @@ impl PoRValidatorContract {
             panic!("Already initialized");
         }
         let config = Config {
-            admin,
-            wbtc_token,
-            oracle,
+            admin: admin.clone(),
+            wbtc_token: wbtc_token.clone(),
+            oracle: oracle.clone(),
             tolerance_bps,
             proof_cadence_ledgers: DEFAULT_PROOF_CADENCE_LEDGERS,
             max_stale_ledgers: DEFAULT_MAX_STALE_LEDERS,
         };
         env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("por"), symbol_short!("init")),
+            EvtInit {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: admin.clone(),
+                admin,
+                wbtc_token,
+                oracle,
+                tolerance_bps,
+            },
+        );
     }
 
     pub fn update_config(env: Env, config: Config) {
         let current_config: Config = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
         current_config.admin.require_auth();
         env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("por"), symbol_short!("cfg_upd")),
+            EvtCfgUpd {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: current_config.admin.clone(),
+                admin: config.admin.clone(),
+                oracle: config.oracle.clone(),
+                tolerance_bps: config.tolerance_bps,
+            },
+        );
     }
 
     pub fn set_safety_policy(env: Env, proof_cadence_ledgers: u32, max_stale_ledgers: u32) {
@@ -92,6 +163,17 @@ impl PoRValidatorContract {
         config.proof_cadence_ledgers = proof_cadence_ledgers;
         config.max_stale_ledgers = max_stale_ledgers;
         env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("por"), symbol_short!("safety_cfg")),
+            EvtSafetyCfg {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: config.admin.clone(),
+                proof_cadence_ledgers,
+                max_stale_ledgers,
+            },
+        );
     }
 
     pub fn verify_reserves(env: Env) -> ProofRecord {
@@ -119,7 +201,16 @@ impl PoRValidatorContract {
 
         env.events().publish(
             (symbol_short!("por"), symbol_short!("proof")),
-            (is_valid, reserve_data.balance, reserve_data.circulating_supply, current_ledger, valid_until_ledger),
+            EvtProof {
+                version: 1,
+                ledger: current_ledger,
+                actor: config.admin.clone(),
+                is_valid,
+                balance: reserve_data.balance,
+                circulating_supply: reserve_data.circulating_supply,
+                verified_ledger: current_ledger,
+                valid_until_ledger,
+            },
         );
 
         proof

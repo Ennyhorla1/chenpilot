@@ -38,6 +38,61 @@ pub struct Position {
     pub debt_amount: i128,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtInit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub oracle: Address,
+    pub collateral_token: Address,
+    pub debt_token: Address,
+    pub min_health_factor: i128,
+    pub liquidation_bonus_bps: i128,
+    pub ltv_bps: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtCfgUpd {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub oracle: Address,
+    pub collateral_token: Address,
+    pub debt_token: Address,
+    pub min_health_factor: i128,
+    pub liquidation_bonus_bps: i128,
+    pub ltv_bps: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtDeposit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub borrower: Address,
+    pub collateral_amount: i128,
+    pub borrow_amount: i128,
+    pub health_factor: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtLiquidate {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub liquidator: Address,
+    pub borrower: Address,
+    pub repay_amount: i128,
+    pub collateral_seized: i128,
+    pub health_factor: i128,
+}
+
 #[contract]
 pub struct LendingLiquidationContract;
 
@@ -45,8 +100,50 @@ pub struct LendingLiquidationContract;
 impl LendingLiquidationContract {
     pub fn initialize(env: Env, config: Config) {
         if env.storage().instance().has(&DataKey::Config) {
-            panic!("already initialized");
+            panic!("Already initialized");
         }
+        Self::validate_config(&config);
+        env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("lend"), symbol_short!("init")),
+            EvtInit {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: config.admin.clone(),
+                admin: config.admin.clone(),
+                oracle: config.oracle.clone(),
+                collateral_token: config.collateral_token.clone(),
+                debt_token: config.debt_token.clone(),
+                min_health_factor: config.min_health_factor,
+                liquidation_bonus_bps: config.liquidation_bonus_bps,
+                ltv_bps: config.ltv_bps,
+            },
+        );
+    }
+
+    pub fn update_config(env: Env, config: Config) {
+        let current_config: Config = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
+        current_config.admin.require_auth();
+        Self::validate_config(&config);
+        env.storage().instance().set(&DataKey::Config, &config);
+
+        env.events().publish(
+            (symbol_short!("lend"), symbol_short!("cfg_upd")),
+            EvtCfgUpd {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: current_config.admin.clone(),
+                admin: config.admin.clone(),
+                oracle: config.oracle.clone(),
+                collateral_token: config.collateral_token.clone(),
+                debt_token: config.debt_token.clone(),
+                min_health_factor: config.min_health_factor,
+                liquidation_bonus_bps: config.liquidation_bonus_bps,
+                ltv_bps: config.ltv_bps,
+            },
+        );
+    }
         Self::validate_config(&config);
         env.storage().instance().set(&DataKey::Config, &config);
     }
@@ -106,6 +203,19 @@ impl LendingLiquidationContract {
         pos.debt_amount = new_debt;
 
         env.storage().persistent().set_with_ttl(&DataKey::Position(borrower), &pos, POSITION_TTL_LEDGERS);
+
+        env.events().publish(
+            (symbol_short!("lend"), symbol_short!("deposit")),
+            EvtDeposit {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: borrower.clone(),
+                borrower: borrower.clone(),
+                collateral_amount: new_collateral,
+                borrow_amount: new_debt,
+                health_factor: hf,
+            },
+        );
     }
 
     pub fn liquidate(env: Env, liquidator: Address, borrower: Address, repay_amount: i128) {
@@ -163,8 +273,17 @@ impl LendingLiquidationContract {
         env.storage().persistent().set_with_ttl(&DataKey::Position(borrower.clone()), &pos, POSITION_TTL_LEDGERS);
 
         env.events().publish(
-            (symbol_short!("Liquidate"),),
-            (borrower, actual_repay, collateral_seized, hf),
+            (symbol_short!("lend"), symbol_short!("liquidate")),
+            EvtLiquidate {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: liquidator.clone(),
+                liquidator,
+                borrower: borrower.clone(),
+                repay_amount: actual_repay,
+                collateral_seized,
+                health_factor: hf,
+            },
         );
     }
 

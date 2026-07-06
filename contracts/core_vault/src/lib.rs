@@ -83,6 +83,93 @@ pub enum RecoveryReason {
     AdminIntervention,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtInit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub admin: Address,
+    pub vault_token: Address,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtBackendStatus {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub online: bool,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtDeposit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub user: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtForceExitReq {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub user: Address,
+    pub amount: i128,
+    pub eligible_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtForceExitDone {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub user: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtUpgProp {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub new_wasm_hash: BytesN<32>,
+    pub unlock_ledger: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtUpgCncl {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtUpgDone {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub new_wasm_hash: BytesN<32>,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtAdmXfer {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub old_admin: Address,
+    pub new_admin: Address,
+}
+
 #[contract]
 pub struct CoreVaultContract;
 
@@ -111,6 +198,16 @@ impl CoreVaultContract {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
         env.storage().instance().set(&DataKey::BackendOnline, &online);
+
+        env.events().publish(
+            (symbol_short!("vault"), symbol_short!("backend_status")),
+            EvtBackendStatus {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: admin.clone(),
+                online,
+            },
+        );
     }
 
     pub fn is_backend_online(env: Env) -> bool {
@@ -294,7 +391,7 @@ impl CoreVaultContract {
         admin.require_auth();
 
         let unlock_ledger = env.ledger().sequence() + TIMELOCK_LEDGERS;
-        let pending = PendingUpgrade { new_wasm_hash, unlock_ledger };
+        let pending = PendingUpgrade { new_wasm_hash: new_wasm_hash.clone(), unlock_ledger };
         env.storage().instance().set(&DataKey::PendingUpgrade, &pending);
 
         env.events().publish(

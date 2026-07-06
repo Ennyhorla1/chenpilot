@@ -46,6 +46,42 @@ pub struct Swap {
     pub status: SwapStatus,
 }
 
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtSwapInit {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub swap_id: BytesN<32>,
+    pub initiator: Address,
+    pub recipient: Address,
+    pub token: Address,
+    pub amount: i128,
+    pub expiry_ledger: u32,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtClaim {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub swap_id: BytesN<32>,
+    pub recipient: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct EvtRefund {
+    pub version: u32,
+    pub ledger: u32,
+    pub actor: Address,
+    pub swap_id: BytesN<32>,
+    pub initiator: Address,
+    pub amount: i128,
+}
+
 // ---------------------------------------------------------------------------
 // Contract
 // ---------------------------------------------------------------------------
@@ -104,7 +140,20 @@ impl HtlcContract {
         let ttl_ledgers = expiry_ledger.saturating_add(SWAP_TTL_GRACE_LEDGERS);
         env.storage().persistent().set_with_ttl(&DataKey::Swap(swap_id.clone()), &swap, ttl_ledgers);
 
-        env.events().publish((symbol_short!("SwapInit"),), swap_id.clone());
+        env.events().publish(
+            (symbol_short!("htlc"), symbol_short!("init")),
+            EvtSwapInit {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: initiator.clone(),
+                swap_id: swap_id.clone(),
+                initiator,
+                recipient: swap.recipient.clone(),
+                token: swap.token.clone(),
+                amount: swap.amount,
+                expiry_ledger: swap.expiry_ledger,
+            },
+        );
         swap_id
     }
 
@@ -150,7 +199,17 @@ impl HtlcContract {
         let token_client = token::Client::new(&env, &swap.token);
         token_client.transfer(&env.current_contract_address(), &swap.recipient, &swap.amount);
 
-        env.events().publish((symbol_short!("Claimed"),), swap_id);
+        env.events().publish(
+            (symbol_short!("htlc"), symbol_short!("claim")),
+            EvtClaim {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: swap.recipient.clone(),
+                swap_id,
+                recipient: swap.recipient.clone(),
+                amount: swap.amount,
+            },
+        );
     }
 
     /// Refund the locked funds back to the initiator after expiry.
@@ -180,7 +239,17 @@ impl HtlcContract {
         let token_client = token::Client::new(&env, &swap.token);
         token_client.transfer(&env.current_contract_address(), &swap.initiator, &swap.amount);
 
-        env.events().publish((symbol_short!("Refunded"),), swap_id);
+        env.events().publish(
+            (symbol_short!("htlc"), symbol_short!("refund")),
+            EvtRefund {
+                version: 1,
+                ledger: env.ledger().sequence(),
+                actor: swap.initiator.clone(),
+                swap_id,
+                initiator: swap.initiator.clone(),
+                amount: swap.amount,
+            },
+        );
     }
 
     /// Returns the swap details for a given swap_id.
