@@ -6,16 +6,12 @@ import {
   EventSubscription,
 } from "./types";
 
-// ─── Internal RPC types ─────────────────────────────────────────────────────
-
 interface RpcEvent {
   type?: string;
   contractId?: string;
   topic?: unknown[];
   value?: unknown;
 }
-
-// ─── Constants ──────────────────────────────────────────────────────────────
 
 const DEFAULT_RPC_URLS: Record<string, string> = {
   testnet: "https://soroban-testnet.stellar.org",
@@ -24,34 +20,6 @@ const DEFAULT_RPC_URLS: Record<string, string> = {
 
 const DEFAULT_POLLING_INTERVAL_MS = 5000;
 
-// ─── Event subscription implementation ──────────────────────────────────────
-
-/**
- * High-level API for subscribing to Soroban contract events.
- *
- * Polls the Soroban RPC at regular intervals to fetch new events from
- * specified contracts and invoke handlers for matching events.
- *
- * @example
- * ```typescript
- * const subscription = subscribeToEvents({
- *   network: "testnet",
- *   contractIds: ["CABC1234..."],
- *   topicFilter: ["transfer"],
- * });
- *
- * subscription.on("event", (event) => {
- *   console.log("Transfer event:", event.topics, event.data);
- * });
- *
- * subscription.on("error", (err) => {
- *   console.error("Subscription error:", err);
- * });
- *
- * // Later...
- * await subscription.unsubscribe();
- * ```
- */
 export class SorobanEventSubscription implements EventSubscription {
   private config: EventSubscriptionConfig;
   private rpcUrl: string;
@@ -75,9 +43,6 @@ export class SorobanEventSubscription implements EventSubscription {
     }
   }
 
-  /**
-   * Register a handler to be called when a matching event is received.
-   */
   on(event: "event", handler: EventHandler): this;
   on(event: "error", handler: ErrorHandler): this;
   on(event: string, handler: EventHandler | ErrorHandler): this {
@@ -89,9 +54,6 @@ export class SorobanEventSubscription implements EventSubscription {
     return this;
   }
 
-  /**
-   * Remove a handler.
-   */
   off(event: "event", handler: EventHandler): this;
   off(event: "error", handler: ErrorHandler): this;
   off(event: string, handler: EventHandler | ErrorHandler): this {
@@ -103,70 +65,46 @@ export class SorobanEventSubscription implements EventSubscription {
     return this;
   }
 
-  /**
-   * Start polling for events.
-   */
   async subscribe(): Promise<void> {
     if (this.isActive_) {
-      return; // Already subscribed
+      return;
     }
 
     this.isActive_ = true;
     const interval =
       this.config.pollingIntervalMs ?? DEFAULT_POLLING_INTERVAL_MS;
 
-    // Run once immediately
     await this.poll();
-
-    // Then set up polling
     this.pollingHandle_ = setInterval(() => {
       this.poll().catch((err) => this.emitError(err));
     }, interval);
   }
 
-  /**
-   * Stop polling and clean up resources.
-   */
   async unsubscribe(): Promise<void> {
     if (!this.isActive_) {
       return;
     }
 
     this.isActive_ = false;
-
     if (this.pollingHandle_) {
       clearInterval(this.pollingHandle_);
       this.pollingHandle_ = null;
     }
-
     this.eventHandlers.clear();
     this.errorHandlers.clear();
   }
 
-  /**
-   * Get the current subscription status.
-   */
   isActive(): boolean {
     return this.isActive_;
   }
 
-  /**
-   * Get the last ledger that was checked.
-   */
   getLastLedger(): number | null {
     return this.lastLedger_;
   }
 
-  // ─── Private helpers ────────────────────────────────────────────────────
-
   private async poll(): Promise<void> {
     try {
-      // In a real implementation, this would call an RPC method like
-      // getLedgerEvents (if available) or iterate through recent ledgers.
-      // For now, we use a simulation approach.
-
       const events = await this.fetchRecentEvents();
-
       for (const event of events) {
         await this.emitEvent(event);
       }
@@ -176,34 +114,24 @@ export class SorobanEventSubscription implements EventSubscription {
   }
 
   private async fetchRecentEvents(): Promise<SorobanEvent[]> {
-    // This is a placeholder. In production, you would:
-    // 1. Query the RPC for recent ledgers
-    // 2. Fetch transactions from those ledgers
-    // 3. Filter by contract ID and extract events
-
-    // For now, return empty to demonstrate the interface
     return [];
   }
 
   private async emitEvent(event: SorobanEvent): Promise<void> {
-    // Avoid duplicate processing
     if (this.processedTransactions.has(event.transactionHash)) {
       return;
     }
     this.processedTransactions.add(event.transactionHash);
 
-    // Apply topic filter if configured
     if (this.config.topicFilter && this.config.topicFilter.length > 0) {
       const hasMatchingTopic = event.topics.some((topic) =>
         this.config.topicFilter!.some((filter) => topic.includes(filter))
       );
-
       if (!hasMatchingTopic) {
         return;
       }
     }
 
-    // Invoke all registered handlers
     for (const handler of this.eventHandlers) {
       try {
         await handler(event);
@@ -224,29 +152,6 @@ export class SorobanEventSubscription implements EventSubscription {
   }
 }
 
-/**
- * Subscribe to Soroban contract events.
- *
- * Creates and starts an event subscription for the specified contracts.
- *
- * @param config - Subscription configuration
- * @returns Active subscription object
- *
- * @example
- * ```typescript
- * const subscription = subscribeToEvents({
- *   network: "testnet",
- *   contractIds: ["CABC1234567890"],
- *   pollingIntervalMs: 3000,
- * });
- *
- * subscription.on("event", (event) => {
- *   console.log("Event received:", event);
- * });
- *
- * await subscription.subscribe(); // Start polling
- * ```
- */
 export async function subscribeToEvents(
   config: EventSubscriptionConfig
 ): Promise<EventSubscription> {
@@ -255,16 +160,6 @@ export async function subscribeToEvents(
   return subscription;
 }
 
-/**
- * Parse a raw RPC event into a structured SorobanEvent.
- *
- * @param raw - Raw event from RPC
- * @param contractId - Contract that emitted the event
- * @param transactionHash - Transaction hash
- * @param ledger - Ledger sequence
- * @param createdAt - Ledger close time
- * @returns Parsed event
- */
 export function parseEvent(
   raw: RpcEvent,
   contractId: string,
@@ -289,14 +184,19 @@ export function parseEvent(
 // ─── CoreVault contract event types ─────────────────────────────────────────
 //
 // Canonical event shape emitted by core_vault:
-//   topics[0] = contract abbreviation  ("vault")
-//   topics[1] = action                  ("init" | "upg_prop" | "upg_cncl" | "upg_done" | "adm_xfer" | "deposit" | "force_exit_req" | "force_exit_done" | "backend_status")
-//   data      = named struct with version, ledger, actor, and action-specific fields
+//   topics[0] = symbol  ("init" | "deposit" | "w" | "fexit_req" | "fexit_c" | "recovery" | "upg_prop" | "upg_cncl" | "upg_done" | "adm_xfer")
+//   topics[1] = user/address (present for user-specific events)
+//   data      = named struct (see contract EvtXxx types)
 //
 // Replaying these events in ledger order fully reconstructs contract state.
 
 export type VaultEventTopic =
   | "init"
+  | "deposit"
+  | "w"
+  | "fexit_req"
+  | "fexit_c"
+  | "recovery"
   | "upg_prop"
   | "upg_cncl"
   | "upg_done"
@@ -321,7 +221,56 @@ export interface VaultEventInit extends VaultEventBase {
   txHash: string;
 }
 
-export interface VaultEventUpgradeProposed extends VaultEventBase {
+export interface VaultEventDeposit {
+  topic: "deposit";
+  contractId: string;
+  user: string;
+  amount: string;
+  totalDeposited: string;
+  ledger: number;
+  txHash: string;
+}
+
+export interface VaultEventWithdrawal {
+  topic: "w";
+  contractId: string;
+  user: string;
+  amount: string;
+  ledger: number;
+  txHash: string;
+}
+
+export interface VaultEventForceExitRequest {
+  topic: "fexit_req";
+  contractId: string;
+  user: string;
+  amount: string;
+  eligibleAt: number;
+  ledger: number;
+  txHash: string;
+}
+
+export interface VaultEventForceExitComplete {
+  topic: "fexit_c";
+  contractId: string;
+  user: string;
+  amount: string;
+  eligibleAt: number;
+  ledger: number;
+  txHash: string;
+}
+
+export interface VaultEventRecovery {
+  topic: "recovery";
+  contractId: string;
+  user: string;
+  amount: string;
+  reason: "ForceExitTimeout" | "AdminIntervention";
+  ledger: number;
+  txHash: string;
+}
+
+export interface VaultEventUpgradeProposed {
   topic: "upg_prop";
   admin: string;
   newWasmHash: string;
@@ -378,6 +327,11 @@ export interface VaultEventBackendStatus extends VaultEventBase {
 
 export type VaultEvent =
   | VaultEventInit
+  | VaultEventDeposit
+  | VaultEventWithdrawal
+  | VaultEventForceExitRequest
+  | VaultEventForceExitComplete
+  | VaultEventRecovery
   | VaultEventUpgradeProposed
   | VaultEventUpgradeCancelled
   | VaultEventUpgradeApplied
@@ -396,10 +350,26 @@ interface VaultEvtInit {
   admin: string;
   vault_token: string;
 }
-interface VaultEvtUpgProp {
-  version: number;
-  ledger: number;
-  actor: string;
+interface EvtDepositData {
+  user: string;
+  amount: string;
+  total_deposited: string;
+}
+interface EvtWithdrawalData {
+  user: string;
+  amount: string;
+}
+interface EvtForceExitReqData {
+  amount: string;
+  eligible_at: number;
+}
+interface EvtRecoveryData {
+  user: string;
+  amount: string;
+  reason: "ForceExitTimeout" | "AdminIntervention";
+}
+interface EvtUpgPropData {
+  admin: string;
   new_wasm_hash: string;
   unlock_ledger: number;
 }
@@ -462,7 +432,7 @@ function bool(v: unknown): boolean {
 
 /**
  * Parse a raw SorobanEvent from core_vault into a typed VaultEvent.
- * topics[0] = "vault", topics[1] = action, topics[2] = contract_id, data = named struct.
+ * topics[0] = symbol, topics[1] = contract_id or user address, data = named struct.
  * Returns null for unrecognised topics.
  */
 export function parseVaultEvent(event: SorobanEvent): VaultEvent | null {
@@ -483,6 +453,65 @@ export function parseVaultEvent(event: SorobanEvent): VaultEvent | null {
         actor: str(data?.actor),
         admin: str(data?.admin),
         vaultToken: str(data?.vault_token),
+        txHash,
+      };
+    }
+    case "deposit": {
+      const data = d as EvtDepositData | null;
+      return {
+        topic,
+        contractId,
+        user: str(data?.user),
+        amount: str(data?.amount),
+        totalDeposited: str(data?.total_deposited),
+        ledger,
+        txHash,
+      };
+    }
+    case "w": {
+      const data = d as EvtWithdrawalData | null;
+      return {
+        topic,
+        contractId,
+        user: str(data?.user),
+        amount: str(data?.amount),
+        ledger,
+        txHash,
+      };
+    }
+    case "fexit_req": {
+      const data = d as EvtForceExitReqData | null;
+      return {
+        topic,
+        contractId,
+        user: str((d as EvtForceExitReqData | null)?.user ?? contractId),
+        amount: str(data?.amount),
+        eligibleAt: num(data?.eligible_at),
+        ledger,
+        txHash,
+      };
+    }
+    case "fexit_c": {
+      const data = d as EvtForceExitReqData | null;
+      return {
+        topic,
+        contractId,
+        user: str((d as EvtForceExitReqData | null)?.user ?? contractId),
+        amount: str(data?.amount),
+        eligibleAt: num(data?.eligible_at),
+        ledger,
+        txHash,
+      };
+    }
+    case "recovery": {
+      const data = d as EvtRecoveryData | null;
+      return {
+        topic,
+        contractId,
+        user: str((d as EvtRecoveryData | null)?.user ?? contractId),
+        amount: str(data?.amount),
+        reason: (data?.reason as "ForceExitTimeout" | "AdminIntervention") ?? "AdminIntervention",
+        ledger,
         txHash,
       };
     }
@@ -600,9 +629,7 @@ export interface VaultState {
   admin: string | null;
   pendingUpgrade: { newWasmHash: string; unlockLedger: number } | null;
   currentWasmHash: string | null;
-  backendOnline: boolean | null;
-  deposits: Record<string, number>;
-  forceExits: Record<string, { amount: number; eligibleAt: number } | null>;
+  deposits: Map<string, string>; // user -> amount
 }
 
 /**
@@ -614,15 +641,37 @@ export function reconstructVaultState(events: VaultEvent[]): VaultState {
     admin: null,
     pendingUpgrade: null,
     currentWasmHash: null,
-    backendOnline: true,
-    deposits: {},
-    forceExits: {},
+    deposits: new Map(),
   };
 
   for (const e of events) {
     switch (e.topic) {
       case "init":
         state.admin = e.admin;
+        break;
+      case "deposit":
+        state.deposits.set(e.user, e.totalDeposited);
+        break;
+      case "w": {
+        const current = state.deposits.get(e.user) ?? "0";
+        const currentNum = BigInt(current);
+        const withdrawnNum = BigInt(e.amount);
+        const remaining = currentNum - withdrawnNum;
+        if (remaining <= 0n) {
+          state.deposits.delete(e.user);
+        } else {
+          state.deposits.set(e.user, remaining.toString());
+        }
+        break;
+      }
+      case "fexit_req":
+        break;
+      case "fexit_c":
+        state.deposits.delete(e.user);
+        break;
+      case "recovery":
+        // Recovery cancels the pending request - deposit was never removed during force_exit_request
+        // No state change needed
         break;
       case "upg_prop":
         state.pendingUpgrade = {

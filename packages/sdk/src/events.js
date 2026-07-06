@@ -38,39 +38,11 @@ exports.subscribeToEvents = subscribeToEvents;
 exports.parseEvent = parseEvent;
 exports.parseVaultEvent = parseVaultEvent;
 exports.reconstructVaultState = reconstructVaultState;
-// ─── Constants ──────────────────────────────────────────────────────────────
 const DEFAULT_RPC_URLS = {
   testnet: "https://soroban-testnet.stellar.org",
   mainnet: "https://soroban-mainnet.stellar.org",
 };
 const DEFAULT_POLLING_INTERVAL_MS = 5000;
-// ─── Event subscription implementation ──────────────────────────────────────
-/**
- * High-level API for subscribing to Soroban contract events.
- *
- * Polls the Soroban RPC at regular intervals to fetch new events from
- * specified contracts and invoke handlers for matching events.
- *
- * @example
- * ```typescript
- * const subscription = subscribeToEvents({
- *   network: "testnet",
- *   contractIds: ["CABC1234..."],
- *   topicFilter: ["transfer"],
- * });
- *
- * subscription.on("event", (event) => {
- *   console.log("Transfer event:", event.topics, event.data);
- * });
- *
- * subscription.on("error", (err) => {
- *   console.error("Subscription error:", err);
- * });
- *
- * // Later...
- * await subscription.unsubscribe();
- * ```
- */
 class SorobanEventSubscription {
   constructor(config) {
     this.isActive_ = false;
@@ -104,64 +76,39 @@ class SorobanEventSubscription {
     }
     return this;
   }
-  /**
-   * Start polling for events.
-   */
-  subscribe() {
-    return __awaiter(this, void 0, void 0, function* () {
-      var _a;
-      if (this.isActive_) {
-        return; // Already subscribed
-      }
-      this.isActive_ = true;
-      const interval =
-        (_a = this.config.pollingIntervalMs) !== null && _a !== void 0
-          ? _a
-          : DEFAULT_POLLING_INTERVAL_MS;
-      // Run once immediately
-      yield this.poll();
-      // Then set up polling
-      this.pollingHandle_ = setInterval(() => {
-        this.poll().catch((err) => this.emitError(err));
-      }, interval);
-    });
+  async subscribe() {
+    if (this.isActive_) {
+      return;
+    }
+    this.isActive_ = true;
+    const interval =
+      this.config.pollingIntervalMs ?? DEFAULT_POLLING_INTERVAL_MS;
+    await this.poll();
+    this.pollingHandle_ = setInterval(() => {
+      this.poll().catch((err) => this.emitError(err));
+    }, interval);
   }
-  /**
-   * Stop polling and clean up resources.
-   */
-  unsubscribe() {
-    return __awaiter(this, void 0, void 0, function* () {
-      if (!this.isActive_) {
-        return;
-      }
-      this.isActive_ = false;
-      if (this.pollingHandle_) {
-        clearInterval(this.pollingHandle_);
-        this.pollingHandle_ = null;
-      }
-      this.eventHandlers.clear();
-      this.errorHandlers.clear();
-    });
+  async unsubscribe() {
+    if (!this.isActive_) {
+      return;
+    }
+    this.isActive_ = false;
+    if (this.pollingHandle_) {
+      clearInterval(this.pollingHandle_);
+      this.pollingHandle_ = null;
+    }
+    this.eventHandlers.clear();
+    this.errorHandlers.clear();
   }
-  /**
-   * Get the current subscription status.
-   */
   isActive() {
     return this.isActive_;
   }
-  /**
-   * Get the last ledger that was checked.
-   */
   getLastLedger() {
     return this.lastLedger_;
   }
-  // ─── Private helpers ────────────────────────────────────────────────────
   poll() {
     return __awaiter(this, void 0, void 0, function* () {
       try {
-        // In a real implementation, this would call an RPC method like
-        // getLedgerEvents (if available) or iterate through recent ledgers.
-        // For now, we use a simulation approach.
         const events = yield this.fetchRecentEvents();
         for (const event of events) {
           yield this.emitEvent(event);
@@ -175,22 +122,15 @@ class SorobanEventSubscription {
   }
   fetchRecentEvents() {
     return __awaiter(this, void 0, void 0, function* () {
-      // This is a placeholder. In production, you would:
-      // 1. Query the RPC for recent ledgers
-      // 2. Fetch transactions from those ledgers
-      // 3. Filter by contract ID and extract events
-      // For now, return empty to demonstrate the interface
       return [];
     });
   }
   emitEvent(event) {
     return __awaiter(this, void 0, void 0, function* () {
-      // Avoid duplicate processing
       if (this.processedTransactions.has(event.transactionHash)) {
         return;
       }
       this.processedTransactions.add(event.transactionHash);
-      // Apply topic filter if configured
       if (this.config.topicFilter && this.config.topicFilter.length > 0) {
         const hasMatchingTopic = event.topics.some((topic) =>
           this.config.topicFilter.some((filter) => topic.includes(filter))
@@ -199,7 +139,6 @@ class SorobanEventSubscription {
           return;
         }
       }
-      // Invoke all registered handlers
       for (const handler of this.eventHandlers) {
         try {
           yield handler(event);
@@ -220,29 +159,6 @@ class SorobanEventSubscription {
   }
 }
 exports.SorobanEventSubscription = SorobanEventSubscription;
-/**
- * Subscribe to Soroban contract events.
- *
- * Creates and starts an event subscription for the specified contracts.
- *
- * @param config - Subscription configuration
- * @returns Active subscription object
- *
- * @example
- * ```typescript
- * const subscription = subscribeToEvents({
- *   network: "testnet",
- *   contractIds: ["CABC1234567890"],
- *   pollingIntervalMs: 3000,
- * });
- *
- * subscription.on("event", (event) => {
- *   console.log("Event received:", event);
- * });
- *
- * await subscription.subscribe(); // Start polling
- * ```
- */
 function subscribeToEvents(config) {
   return __awaiter(this, void 0, void 0, function* () {
     const subscription = new SorobanEventSubscription(config);
@@ -250,16 +166,6 @@ function subscribeToEvents(config) {
     return subscription;
   });
 }
-/**
- * Parse a raw RPC event into a structured SorobanEvent.
- *
- * @param raw - Raw event from RPC
- * @param contractId - Contract that emitted the event
- * @param transactionHash - Transaction hash
- * @param ledger - Ledger sequence
- * @param createdAt - Ledger close time
- * @returns Parsed event
- */
 function parseEvent(raw, contractId, transactionHash, ledger, createdAt) {
   var _a;
   return {
@@ -274,21 +180,11 @@ function parseEvent(raw, contractId, transactionHash, ledger, createdAt) {
   };
 }
 function str(v) {
-  return typeof v === "string"
-    ? v
-    : String(v !== null && v !== void 0 ? v : "");
+  return typeof v === "string" ? v : String(v !== null && v !== void 0 ? v : "");
 }
 function num(v) {
   return typeof v === "number" ? v : Number(v !== null && v !== void 0 ? v : 0);
 }
-function bool(v) {
-  return typeof v === "boolean" ? v : Boolean(v !== null && v !== void 0 ? v : false);
-}
-/**
- * Parse a raw SorobanEvent from core_vault into a typed VaultEvent.
- * topics[0] = "vault", topics[1] = action, topics[2] = contract_id, data = named struct.
- * Returns null for unrecognised topics.
- */
 function parseVaultEvent(event) {
   const topic = event.topics[1];
   const contractId = str(event.topics[2]);
@@ -305,6 +201,67 @@ function parseVaultEvent(event) {
         actor: str(data === null || data === void 0 ? void 0 : data.actor),
         admin: str(data === null || data === void 0 ? void 0 : data.admin),
         vaultToken: str(data === null || data === void 0 ? void 0 : data.vault_token),
+        txHash,
+      };
+    }
+    case "deposit": {
+      const data = d;
+      return {
+        topic,
+        contractId,
+        user: str(data === null || data === void 0 ? void 0 : data.user),
+        amount: str(data === null || data === void 0 ? void 0 : data.amount),
+        totalDeposited: str(
+          data === null || data === void 0 ? void 0 : data.total_deposited
+        ),
+        ledger,
+        txHash,
+      };
+    }
+    case "w": {
+      const data = d;
+      return {
+        topic,
+        contractId,
+        user: str(data === null || data === void 0 ? void 0 : data.user),
+        amount: str(data === null || data === void 0 ? void 0 : data.amount),
+        ledger,
+        txHash,
+      };
+    }
+    case "fexit_req": {
+      const data = d;
+      return {
+        topic,
+        contractId,
+        user: str((d === null || d === void 0 ? void 0 : d.user) ?? contractId),
+        amount: str(data === null || data === void 0 ? void 0 : data.amount),
+        eligibleAt: num(data === null || data === void 0 ? void 0 : data.eligible_at),
+        ledger,
+        txHash,
+      };
+    }
+    case "fexit_c": {
+      const data = d;
+      return {
+        topic,
+        contractId,
+        user: str((d === null || d === void 0 ? void 0 : d.user) ?? contractId),
+        amount: str(data === null || data === void 0 ? void 0 : data.amount),
+        eligibleAt: num(data === null || data === void 0 ? void 0 : data.eligible_at),
+        ledger,
+        txHash,
+      };
+    }
+    case "recovery": {
+      const data = d;
+      return {
+        topic,
+        contractId,
+        user: str((d === null || d === void 0 ? void 0 : d.user) ?? contractId),
+        amount: str(data === null || data === void 0 ? void 0 : data.amount),
+        reason: (data === null || data === void 0 ? void 0 : data.reason) ?? "AdminIntervention",
+        ledger,
         txHash,
       };
     }
@@ -427,23 +384,41 @@ function parseVaultEvent(event) {
       return null;
   }
 }
-/**
- * Replay vault events (sorted ascending by ledger) to reconstruct contract state.
- * No ledger queries needed — the event stream is the source of truth.
- */
 function reconstructVaultState(events) {
   const state = {
     admin: null,
     pendingUpgrade: null,
     currentWasmHash: null,
-    backendOnline: true,
-    deposits: {},
-    forceExits: {},
+    deposits: new Map(),
   };
   for (const e of events) {
     switch (e.topic) {
       case "init":
         state.admin = e.admin;
+        break;
+      case "deposit":
+        state.deposits.set(e.user, e.totalDeposited);
+        break;
+      case "w": {
+        const current = state.deposits.get(e.user) ?? "0";
+        const currentNum = BigInt(current);
+        const withdrawnNum = BigInt(e.amount);
+        const remaining = currentNum - withdrawnNum;
+        if (remaining <= 0n) {
+          state.deposits.delete(e.user);
+        } else {
+          state.deposits.set(e.user, remaining.toString());
+        }
+        break;
+      }
+      case "fexit_req":
+        break;
+      case "fexit_c":
+        state.deposits.delete(e.user);
+        break;
+      case "recovery":
+        // Recovery cancels the pending request - deposit was never removed during force_exit_request
+        // No state change needed
         break;
       case "upg_prop":
         state.pendingUpgrade = {

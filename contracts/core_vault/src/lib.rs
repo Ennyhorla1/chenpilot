@@ -1,5 +1,7 @@
+// ────────────────────────────────────────────────────────────────────────────────
+
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Env, Address, BytesN, token};
+use soroban_sdk::{contract, contractimpl, contracttype, Env, Address, BytesN, token, symbol_short, Symbol};
 
 // ~1 hour at 5s/ledger
 const TIMELOCK_LEDGERS: u32 = 720;
@@ -12,6 +14,19 @@ const FORCE_EXIT_TTL_LEDGERS: u32 = 360_000;
 
 // TTL for deposit records: ~7 days (persistent, but with TTL extension for active accounts)
 const DEPOSIT_TTL_LEDGERS: u32 = 1_209_600;
+
+// ─── Events ─────────────────────────────────────────────────────────────────────
+
+const EVT_INIT: Symbol = symbol_short!("init");
+const EVT_DEPOSIT: Symbol = symbol_short!("deposit");
+const EVT_WITHDRAWAL: Symbol = symbol_short!("w");
+const EVT_FORCE_EXIT_REQ: Symbol = symbol_short!("fexit_req");
+const EVT_FORCE_EXIT_CMPL: Symbol = symbol_short!("fexit_c");
+const EVT_RECOVERY: Symbol = symbol_short!("recovery");
+const EVT_UPG_PROP: Symbol = symbol_short!("upg_prop");
+const EVT_UPG_CNCL: Symbol = symbol_short!("upg_cncl");
+const EVT_UPG_DONE: Symbol = symbol_short!("upg_done");
+const EVT_ADM_XFER: Symbol = symbol_short!("adm_xfer");
 
 #[contracttype]
 #[derive(Clone)]
@@ -35,7 +50,37 @@ pub struct PendingUpgrade {
 #[derive(Clone)]
 pub struct ForceExitRequest {
     pub amount: i128,
-    pub eligible_at: u64, // unix timestamp
+    pub eligible_at: u64,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct DepositEvent {
+    pub user: Address,
+    pub amount: i128,
+    pub total_deposited: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct WithdrawalEvent {
+    pub user: Address,
+    pub amount: i128,
+}
+
+#[contracttype]
+#[derive(Clone)]
+pub struct RecoveryEvent {
+    pub user: Address,
+    pub amount: i128,
+    pub reason: RecoveryReason,
+}
+
+#[contracttype]
+#[derive(Clone, PartialEq)]
+pub enum RecoveryReason {
+    ForceExitTimeout,
+    AdminIntervention,
 }
 
 #[contracttype]
@@ -130,7 +175,8 @@ pub struct CoreVaultContract;
 
 #[contractimpl]
 impl CoreVaultContract {
-    /// Initialize the contract with an admin and the vault token
+    /// Initialize the contract with an admin and the vault token.
+    /// Emits `init` event on success.
     pub fn init(env: Env, admin: Address, vault_token: Address) {
         if env.storage().instance().has(&DataKey::Admin) {
             panic!("already initialized");
@@ -138,22 +184,16 @@ impl CoreVaultContract {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::VaultToken, &vault_token);
         env.storage().instance().set(&DataKey::BackendOnline, &true);
-
         env.events().publish(
-            (symbol_short!("vault"), symbol_short!("init")),
-            EvtInit {
-                version: 1,
-                ledger: env.ledger().sequence(),
-                actor: admin.clone(),
-                admin,
-                vault_token,
-            },
+            (EVT_INIT,),
+            admin.clone(),
         );
     }
 
     // ── Backend status ────────────────────────────────────────────────────────
 
-    /// Admin marks the backend as offline, enabling force-exit requests
+    /// Admin marks the backend as offline, enabling force-exit requests.
+    /// Trust boundary: ADMIN ONLY - users cannot manipulate backend status.
     pub fn set_backend_status(env: Env, online: bool) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
@@ -174,9 +214,12 @@ impl CoreVaultContract {
         env.storage().instance().get(&DataKey::BackendOnline).unwrap_or(true)
     }
 
-    // ── Normal deposit ────────────────────────────────────────────────────────
+    // ── Deposit ───────────────────────────────────────────────────────────────
 
-    /// Deposit tokens into the vault (only when backend is online)
+    /// Deposit tokens into the vault.
+    /// Only allowed when backend is ONLINE.
+    /// Trust boundary: Funds are non-custodial - user owns their deposit balance.
+    /// Emits `deposit` event on success.
     pub fn deposit(env: Env, user: Address, amount: i128) {
         user.require_auth();
         if !Self::is_backend_online(env.clone()) {
@@ -184,8 +227,8 @@ impl CoreVaultContract {
         }
 
         let vault_token: Address = env.storage().instance().get(&DataKey::VaultToken).unwrap();
-        let token = token::Client::new(&env, &vault_token);
-        token.transfer(&user, &env.current_contract_address(), &amount);
+        let token_client = token::Client::new(&env, &vault_token);
+        token_client.transfer(&user, &env.current_contract_address(), &amount);
 
         let current: i128 = env.storage().persistent()
             .get(&DataKey::Deposit(user.clone()))
@@ -193,24 +236,57 @@ impl CoreVaultContract {
         let new_balance = current + amount;
         
         // Store deposit with TTL extension to keep active accounts fresh
-        env.storage().persistent().set_with_ttl(&DataKey::Deposit(user.clone()), &new_balance, DEPOSIT_TTL_LEDGERS);
+        env.storage().persistent().set(&DataKey::Deposit(user.clone()), &new_balance);
+        env.storage().persistent().extend_ttl(&DataKey::Deposit(user.clone()), 100, DEPOSIT_TTL_LEDGERS);
 
         env.events().publish(
-            (symbol_short!("vault"), symbol_short!("deposit")),
-            EvtDeposit {
-                version: 1,
-                ledger: env.ledger().sequence(),
-                actor: user.clone(),
-                user: user.clone(),
-                amount,
-            },
+            (EVT_DEPOSIT, user.clone()),
+            DepositEvent { user, amount, total_deposited: new_balance },
+        );
+    }
+
+    // ── Withdrawal ────────────────────────────────────────────────────────────
+
+    /// Normal withdrawal when backend is ONLINE.
+    /// Trust boundary: Users can withdraw their own balance; contract holds no custody.
+    /// Emits `w` event on success.
+    pub fn withdrawal(env: Env, user: Address, amount: i128) {
+        user.require_auth();
+        if !Self::is_backend_online(env.clone()) {
+            panic!("backend offline: use force_exit_request");
+        }
+
+        let balance: i128 = env.storage().persistent()
+            .get(&DataKey::Deposit(user.clone()))
+            .unwrap_or(0);
+        if balance < amount {
+            panic!("insufficient balance");
+        }
+
+        let new_balance = balance - amount;
+        if new_balance == 0 {
+            env.storage().persistent().remove(&DataKey::Deposit(user.clone()));
+        } else {
+            env.storage().persistent().set(&DataKey::Deposit(user.clone()), &new_balance);
+            env.storage().persistent().extend_ttl(&DataKey::Deposit(user.clone()), 100, DEPOSIT_TTL_LEDGERS);
+        }
+
+        let vault_token: Address = env.storage().instance().get(&DataKey::VaultToken).unwrap();
+        let token_client = token::Client::new(&env, &vault_token);
+        token_client.transfer(&env.current_contract_address(), &user, &amount);
+
+        env.events().publish(
+            (EVT_WITHDRAWAL, user.clone()),
+            WithdrawalEvent { user, amount },
         );
     }
 
     // ── Force Exit ────────────────────────────────────────────────────────────
 
-    /// Initiate a force-exit. Only allowed when backend is offline.
+    /// Initiate a force-exit. Only allowed when backend is OFFLINE.
     /// Starts the 48-hour challenge period.
+    /// Trust boundary: Escape hatch for users when backend is unavailable.
+    /// Emits `fexit_req` event on success.
     pub fn force_exit_request(env: Env, user: Address) {
         user.require_auth();
         if Self::is_backend_online(env.clone()) {
@@ -234,22 +310,18 @@ impl CoreVaultContract {
         
         // Store force-exit with TTL to auto-expire unclaimed requests after ~50 hours
         // This prevents stale requests from accumulating indefinitely
-        env.storage().persistent().set_with_ttl(&DataKey::ForceExit(user.clone()), &req, FORCE_EXIT_TTL_LEDGERS);
+        env.storage().persistent().set(&DataKey::ForceExit(user.clone()), &req);
+        env.storage().persistent().extend_ttl(&DataKey::ForceExit(user.clone()), 100, FORCE_EXIT_TTL_LEDGERS);
 
         env.events().publish(
-            (symbol_short!("vault"), symbol_short!("force_exit_req")),
-            EvtForceExitReq {
-                version: 1,
-                ledger: env.ledger().sequence(),
-                actor: user.clone(),
-                user: user.clone(),
-                amount: balance,
-                eligible_at,
-            },
+            (EVT_FORCE_EXIT_REQ, user),
+            req,
         );
     }
 
     /// Complete the force-exit after the 48-hour challenge period has passed.
+    /// Trust boundary: Users can claim their own funds after challenge period.
+    /// Emits `fexit_c` event on success.
     pub fn force_exit_complete(env: Env, user: Address) {
         user.require_auth();
 
@@ -266,18 +338,36 @@ impl CoreVaultContract {
         env.storage().persistent().remove(&DataKey::Deposit(user.clone()));
 
         let vault_token: Address = env.storage().instance().get(&DataKey::VaultToken).unwrap();
-        let token = token::Client::new(&env, &vault_token);
-        token.transfer(&env.current_contract_address(), &user, &req.amount);
+        let token_client = token::Client::new(&env, &vault_token);
+        token_client.transfer(&env.current_contract_address(), &user, &req.amount);
 
         env.events().publish(
-            (symbol_short!("vault"), symbol_short!("force_exit_done")),
-            EvtForceExitDone {
-                version: 1,
-                ledger: env.ledger().sequence(),
-                actor: user.clone(),
-                user: user.clone(),
-                amount: req.amount,
-            },
+            (EVT_FORCE_EXIT_CMPL, user),
+            req,
+        );
+    }
+
+    /// Recovery: Cancel a pending force-exit request.
+    /// Only callable by ADMIN.
+    /// Trust boundary: ADMIN emergency function for edge cases.
+    /// Emits `recovery` event on success.
+    /// Note: During force_exit_request, the deposit is NOT removed. It is only removed
+    /// during force_exit_complete. This function cancels the pending request without
+    /// modifying the deposit balance.
+    pub fn recovery(env: Env, user: Address) {
+        let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
+        admin.require_auth();
+
+        let req: ForceExitRequest = env.storage().persistent()
+            .get(&DataKey::ForceExit(user.clone()))
+            .expect("no pending force exit to recover");
+
+        // Remove force exit request - deposit balance remains unchanged
+        env.storage().persistent().remove(&DataKey::ForceExit(user.clone()));
+
+        env.events().publish(
+            (EVT_RECOVERY, user.clone()),
+            RecoveryEvent { user, amount: req.amount, reason: RecoveryReason::AdminIntervention },
         );
     }
 
@@ -286,8 +376,16 @@ impl CoreVaultContract {
         env.storage().persistent().get(&DataKey::ForceExit(user))
     }
 
+    /// Returns the current deposit balance for a user
+    pub fn get_deposit(env: Env, user: Address) -> Option<i128> {
+        env.storage().persistent().get(&DataKey::Deposit(user))
+    }
+
     // ── Upgrade time-lock ─────────────────────────────────────────────────────
 
+    /// Propose a contract upgrade. Starts ~1 hour timelock.
+    /// Trust boundary: ADMIN ONLY - upgrade is time-locked, not immediately executable.
+    /// Emits `upg_prop` event on success.
     pub fn propose_upgrade(env: Env, new_wasm_hash: BytesN<32>) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
@@ -297,32 +395,28 @@ impl CoreVaultContract {
         env.storage().instance().set(&DataKey::PendingUpgrade, &pending);
 
         env.events().publish(
-            (symbol_short!("vault"), symbol_short!("upg_prop")),
-            EvtUpgProp {
-                version: 1,
-                ledger: env.ledger().sequence(),
-                actor: admin.clone(),
-                new_wasm_hash,
-                unlock_ledger,
-            },
+            (EVT_UPG_PROP, admin.clone()),
+            pending,
         );
     }
 
+    /// Cancel a pending upgrade.
+    /// Trust boundary: ADMIN ONLY - before timelock expires.
+    /// Emits `upg_cncl` event on success.
     pub fn cancel_upgrade(env: Env) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
         env.storage().instance().remove(&DataKey::PendingUpgrade);
 
         env.events().publish(
-            (symbol_short!("vault"), symbol_short!("upg_cncl")),
-            EvtUpgCncl {
-                version: 1,
-                ledger: env.ledger().sequence(),
-                actor: admin,
-            },
+            (EVT_UPG_CNCL, admin.clone()),
+            admin,
         );
     }
 
+    /// Apply the pending upgrade after timelock has elapsed.
+    /// Trust boundary: Anyone can call after timelock expires (admin or public).
+    /// Emits `upg_done` event on success.
     pub fn apply_upgrade(env: Env) {
         let pending: PendingUpgrade = env
             .storage()
@@ -334,34 +428,29 @@ impl CoreVaultContract {
             panic!("time-lock not expired");
         }
 
+        let wasm_hash = pending.new_wasm_hash.clone();
         env.storage().instance().remove(&DataKey::PendingUpgrade);
-        env.deployer().update_current_contract_wasm(pending.new_wasm_hash.clone());
+        env.deployer().update_current_contract_wasm(wasm_hash.clone());
 
         env.events().publish(
-            (symbol_short!("vault"), symbol_short!("upg_done")),
-            EvtUpgDone {
-                version: 1,
-                ledger: env.ledger().sequence(),
-                actor: env.current_contract_address(),
-                new_wasm_hash: pending.new_wasm_hash.clone(),
-            },
+            (EVT_UPG_DONE,),
+            wasm_hash,
         );
     }
 
+    /// Transfer admin role to a new address.
+    /// Trust boundary: CURRENT ADMIN ONLY.
+    /// Emits `adm_xfer` event on success.
     pub fn transfer_admin(env: Env, new_admin: Address) {
         let admin: Address = env.storage().instance().get(&DataKey::Admin).unwrap();
         admin.require_auth();
+
+        let old_admin = admin.clone();
         env.storage().instance().set(&DataKey::Admin, &new_admin);
 
         env.events().publish(
-            (symbol_short!("vault"), symbol_short!("adm_xfer")),
-            EvtAdmXfer {
-                version: 1,
-                ledger: env.ledger().sequence(),
-                actor: admin.clone(),
-                old_admin: admin,
-                new_admin,
-            },
+            (EVT_ADM_XFER,),
+            (old_admin, new_admin),
         );
     }
 

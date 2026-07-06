@@ -19,7 +19,7 @@ fn dummy_hash(env: &Env) -> BytesN<32> {
 
 fn mint(env: &Env, token: &Address, admin: &Address, to: &Address, amount: i128) {
     StellarAssetClient::new(env, token).mint(to, &amount);
-    let _ = admin; // admin used for asset registration
+    let _ = admin;
 }
 
 #[test]
@@ -75,7 +75,77 @@ fn test_double_init() {
     client.init(&admin, &vault_token);
 }
 
+// ── Withdrawal tests ────────────────────────────────────────────────────────────
+
+#[test]
+fn test_withdrawal_happy_path() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, vault_token, client) = setup(&env);
+
+    let user = Address::generate(&env);
+    mint(&env, &vault_token, &admin, &user, 1000);
+    client.deposit(&user, &1000);
+
+    // Normal withdrawal while backend is online
+    client.withdrawal(&user, &400);
+
+    // Check remaining balance
+    let balance: i128 = client.get_deposit(&user).unwrap();
+    assert_eq!(balance, 600);
+}
+
+#[test]
+fn test_withdrawal_full_balance_removes_record() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, vault_token, client) = setup(&env);
+
+    let user = Address::generate(&env);
+    mint(&env, &vault_token, &admin, &user, 1000);
+    client.deposit(&user, &1000);
+
+    // Withdraw full balance
+    client.withdrawal(&user, &1000);
+
+    // Deposit record should be removed
+    assert!(client.get_deposit(&user).is_none());
+}
+
+#[test]
+#[should_panic(expected = "backend offline: use force_exit_request")]
+fn test_withdrawal_blocked_when_offline() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, vault_token, client) = setup(&env);
+
+    let user = Address::generate(&env);
+    mint(&env, &vault_token, &admin, &user, 1000);
+    client.deposit(&user, &1000);
+
+    // Set backend offline
+    client.set_backend_status(&false);
+
+    // Normal withdrawal should be blocked
+    client.withdrawal(&user, &100);
+}
+
 // ── Force Exit tests ──────────────────────────────────────────────────────────
+
+#[test]
+#[should_panic(expected = "backend is online: use normal withdrawal")]
+fn test_force_exit_blocked_when_online() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (admin, vault_token, client) = setup(&env);
+
+    let user = Address::generate(&env);
+    mint(&env, &vault_token, &admin, &user, 100);
+    client.deposit(&user, &100);
+
+    // Backend is still online — force exit should be rejected
+    client.force_exit_request(&user);
+}
 
 #[test]
 fn test_force_exit_happy_path() {
@@ -131,17 +201,47 @@ fn test_force_exit_too_early() {
     client.force_exit_complete(&user);
 }
 
+// ── Recovery tests ────────────────────────────────────────────────────────────
+
 #[test]
-#[should_panic(expected = "backend is online: use normal withdrawal")]
-fn test_force_exit_blocked_when_online() {
+fn test_recovery_cancels_force_exit() {
     let env = Env::default();
     env.mock_all_auths();
     let (admin, vault_token, client) = setup(&env);
 
     let user = Address::generate(&env);
-    mint(&env, &vault_token, &admin, &user, 100);
-    client.deposit(&user, &100);
-
-    // Backend is still online — force exit should be rejected
+    mint(&env, &vault_token, &admin, &user, 1000);
+    client.deposit(&user, &1000);
+    client.set_backend_status(&false);
     client.force_exit_request(&user);
+
+    // Force exit should be pending
+    assert!(client.get_force_exit(&user).is_some());
+
+    // Admin recovers the force exit
+    client.recovery(&user);
+
+    // Force exit should be cleared
+    assert!(client.get_force_exit(&user).is_none());
+
+    // Deposit balance should remain unchanged (force_exit_request doesn't remove it)
+    let balance: i128 = client.get_deposit(&user).unwrap();
+    assert_eq!(balance, 1000);
+
+    // User can now do a normal withdrawal after recovery (backend goes back online)
+    client.set_backend_status(&true);
+    client.withdrawal(&user, &500);
+    let remaining: i128 = client.get_deposit(&user).unwrap();
+    assert_eq!(remaining, 500);
+}
+
+#[test]
+#[should_panic(expected = "no pending force exit to recover")]
+fn test_recovery_fails_without_force_exit() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (_admin, _token, client) = setup(&env);
+
+    let user = Address::generate(&env);
+    client.recovery(&user);
 }
