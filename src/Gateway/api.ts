@@ -25,6 +25,16 @@ import { ErrorHandler } from "./middleware/errorHandler";
 import { UnauthorizedError, ValidationError, BadError } from "../utils/error";
 import { healthService } from "../services/healthService";
 
+declare module "express" {
+  interface Request {
+    requestId?: string;
+    executionId?: string;
+    rootExecutionId?: string;
+    parentExecutionId?: string;
+    correlationId?: string;
+  }
+}
+
 const app = express();
 
 // Serve static files for Telegram WebApp

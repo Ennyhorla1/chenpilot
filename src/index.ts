@@ -8,7 +8,7 @@ import { initializeSocketManager } from "./Gateway/socketManager";
 import { horizonOperationStreamerService } from "./services/horizonOperationStreamer.service";
 import { priceSpikeAlertService } from "./services/priceSpikeAlert.service";
 import { durableRecoveryService } from "./Agents/planner/DurableRecoveryService";
-import { durableOperationService } from "./Reliability/DurableOperationService";
+import { idempotencyService } from "./Reliability/IdempotencyService";
 
 class Server {
   private server: http.Server;
@@ -45,8 +45,8 @@ class Server {
       // Recover interrupted durable executions
       await durableRecoveryService.recoverInterruptedExecutions();
 
-      // Start durable operation background processor
-      durableOperationService.startBackgroundProcessor();
+      // Start unified idempotency background processor
+      idempotencyService.startBackgroundProcessor();
 
       horizonOperationStreamerService.start();
       priceSpikeAlertService.start();

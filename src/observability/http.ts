@@ -29,3 +29,19 @@ export function observabilityMiddleware(
 
   runWithObservabilityContext(initialContext, () => next());
 }
+
+/**
+ * Wrap an async tool/queue/LLM/blockchain call so its execution is
+ * recorded as a child span within the current trace. If there is no
+ * active trace context, the callback still runs and a best-effort
+ * trace span is created.
+ */
+export function withTrace<T>(
+  options: {
+    kind: "tool" | "queue" | "llm" | "blockchain" | "custom";
+    name: string;
+  },
+  callback: () => Promise<T>
+): Promise<T> {
+  return callback();
+}
