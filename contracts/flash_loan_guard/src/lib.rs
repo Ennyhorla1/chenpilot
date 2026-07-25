@@ -572,3 +572,4 @@ impl FlashLoanGuardContract {
 
 mod test;
 mod test_freshness;
+mod test_invariants;
