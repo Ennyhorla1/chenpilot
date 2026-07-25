@@ -1,7 +1,7 @@
 #![no_std]
 use soroban_sdk::{
     contract, contractimpl, contracttype, contractclient, symbol_short,
-    Address, Env,
+    Address, Env, Vec,
 };
 
 // TTL for price snapshot: ~1 day (172_800 ledgers at 5s/ledger)
@@ -9,11 +9,10 @@ use soroban_sdk::{
 const PRICE_SNAPSHOT_TTL_LEDGERS: u32 = 172_800;
 
 // ---------------------------------------------------------------------------
-// Oracle interface — same pattern as liquidity_vault
+// Oracle interface
 // ---------------------------------------------------------------------------
 #[contractclient(name = "PriceOracleClient")]
 pub trait PriceOracleTrait {
-    /// Returns the price of `asset` scaled to 1e8.
     fn get_price(env: Env, asset: Address) -> i128;
 }
 
@@ -24,14 +23,11 @@ pub trait PriceOracleTrait {
 #[derive(Clone)]
 pub enum DataKey {
     Config,
-    /// Last ledger sequence at which a price snapshot was recorded.
     LastSnapshotLedger,
-    /// Price snapshot: stored as (price, ledger_sequence).
     PriceSnapshot,
-    /// Oracle freshness tracker: (timestamp, sequence_number) for detecting stale/manipulated data.
     OracleFreshness,
-    /// Price sequence history: last N prices to detect sequencing anomalies.
     PriceSequenceHistory,
+    CircuitBreaker,
 }
 
 // ---------------------------------------------------------------------------
@@ -42,37 +38,38 @@ pub enum DataKey {
 pub struct Config {
     pub admin: Address,
     pub oracle: Address,
-    /// The asset whose price is being guarded (e.g. wBTC in the Chen Pilot vault).
     pub guarded_asset: Address,
-    /// Maximum allowed price deviation within a single ledger, in basis points.
-    /// e.g. 200 = 2%. Any intra-ledger price move larger than this is blocked.
     pub max_intra_ledger_deviation_bps: i128,
-    /// Minimum number of ledgers that must pass between price updates.
-    /// Prevents an attacker from updating the snapshot and exploiting in the same ledger.
     pub min_ledger_gap: u32,
-    /// Maximum allowed age of oracle data in seconds (freshness timeout).
-    /// Rejects snapshots older than this duration.
     pub max_oracle_staleness_seconds: u64,
-    /// Maximum allowed price change between consecutive oracle updates (sequencing check).
-    /// Detects out-of-order updates or oracle manipulation.
     pub max_consecutive_price_change_bps: i128,
-    /// Maximum allowed time gap between oracle updates (delayed update detection).
-    /// If no update received within this time, price guard fails.
     pub max_oracle_update_gap_seconds: u64,
+    pub circuit_breaker_threshold_bps: i128,
+    pub circuit_breaker_window_seconds: u64,
 }
 
 // ---------------------------------------------------------------------------
-// Price snapshot stored on-chain
+// Price snapshot
 // ---------------------------------------------------------------------------
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PriceSnapshot {
     pub price: i128,
     pub ledger: u32,
-    /// Timestamp of the oracle update (Unix seconds).
     pub oracle_timestamp: u64,
-    /// Sequence number from oracle for detecting reordered updates.
     pub oracle_sequence: u64,
+}
+
+// ---------------------------------------------------------------------------
+// Circuit breaker state
+// ---------------------------------------------------------------------------
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CircuitBreakerState {
+    pub triggered: bool,
+    pub trigger_ledger: u32,
+    pub trigger_timestamp: u64,
+    pub consecutive_violations: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +202,13 @@ impl FlashLoanGuardContract {
             panic!("already initialized");
         }
         env.storage().instance().set(&DataKey::Config, &config);
+        env.storage().instance().set(
+            &DataKey::CircuitBreaker,
+            &CircuitBreakerState {
+                triggered: false,
+                trigger_ledger: 0,
+                trigger_timestamp: 0,
+                consecutive_violations: 0,
 
         env.events().publish(
             (symbol_short!("flg"), symbol_short!("init")),
@@ -247,20 +251,54 @@ impl FlashLoanGuardContract {
         );
     }
 
-    /// Record a fresh price snapshot from the oracle.
-    ///
-    /// Enforces `min_ledger_gap`: the snapshot cannot be updated more than once
-    /// per `min_ledger_gap` ledgers, preventing an attacker from resetting the
-    /// baseline and exploiting in the same ledger close.
-    ///
-    /// NEW: Also validates oracle freshness (timestamp not too old), detects
-    /// sequencing attacks (price changes within limits), and handles delayed updates.
+    /// Update circuit breaker state and auto-release if window expired
+    fn update_circuit_breaker(env: Env, current_ledger: u32, current_time: u64) {
+        let config: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
+        let mut cb: CircuitBreakerState = env
+            .storage()
+            .instance()
+            .get(&DataKey::CircuitBreaker)
+            .unwrap_or(CircuitBreakerState {
+                triggered: false,
+                trigger_ledger: 0,
+                trigger_timestamp: 0,
+                consecutive_violations: 0,
+            });
+
+        if cb.triggered {
+            if current_time > cb.trigger_timestamp + config.circuit_breaker_window_seconds {
+                cb.triggered = false;
+                cb.trigger_ledger = 0;
+                cb.trigger_timestamp = 0;
+                cb.consecutive_violations = 0;
+                env.storage().instance().set(&DataKey::CircuitBreaker, &cb);
+                env.events().publish((symbol_short!("CbRst"),), (current_ledger, current_time));
+            }
+        }
+    }
+
     pub fn record_snapshot(env: Env, oracle_timestamp: u64, oracle_sequence: u64) {
         let config: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
         let current_ledger = env.ledger().sequence();
         let current_time = env.ledger().timestamp();
 
-        // --- Check oracle freshness (not stale) first ---
+        // Check circuit breaker state first
+        self::update_circuit_breaker(&env, current_ledger, current_time);
+        let cb: CircuitBreakerState = env
+            .storage()
+            .instance()
+            .get(&DataKey::CircuitBreaker)
+            .unwrap_or(CircuitBreakerState {
+                triggered: false,
+                trigger_ledger: 0,
+                trigger_timestamp: 0,
+                consecutive_violations: 0,
+            });
+        if cb.triggered {
+            panic!("flash-loan guard: circuit breaker active");
+        }
+
+        // Oracle freshness check
         if current_time > oracle_timestamp + config.max_oracle_staleness_seconds {
             env.events().publish(
                 (symbol_short!("flg"), symbol_short!("stale_prc")),
@@ -276,11 +314,16 @@ impl FlashLoanGuardContract {
             panic!("flash-loan guard: oracle data too stale (freshness check failed)");
         }
 
-        // --- Fetch current price from oracle ---
         let oracle = PriceOracleClient::new(&env, &config.oracle);
         let price = oracle.get_price(&config.guarded_asset);
 
-        // --- Check min_ledger_gap ---
+        // Fetch last N snapshots for circuit breaker validation
+        let price_history: Vec<PriceSnapshot> = env
+            .storage()
+            .instance()
+            .get(&DataKey::PriceSequenceHistory)
+            .unwrap_or(Vec::from_array(&env, []));
+
         if let Some(snap) = env
             .storage()
             .instance()
@@ -290,12 +333,10 @@ impl FlashLoanGuardContract {
                 panic!("snapshot too recent: min_ledger_gap not met");
             }
 
-            // NEW: Detect sequencing attacks by validating oracle_sequence increased
             if oracle_sequence <= snap.oracle_sequence {
                 panic!("flash-loan guard: oracle sequence not increasing (sequencing attack detected)");
             }
 
-            // NEW: Validate consecutive price change is within limits (detect out-of-order updates)
             let price_diff = if snap.price > 0 {
                 let diff = if snap.price > price {
                     snap.price - price
@@ -323,7 +364,6 @@ impl FlashLoanGuardContract {
                 panic!("flash-loan guard: consecutive price change exceeds threshold (sequencing attack)");
             }
 
-            // NEW: Check delayed update timeout
             if current_time > snap.oracle_timestamp + config.max_oracle_update_gap_seconds {
                 env.events().publish(
                     (symbol_short!("flg"), symbol_short!("stale_upd")),
@@ -337,7 +377,65 @@ impl FlashLoanGuardContract {
                 );
                 panic!("flash-loan guard: oracle update gap exceeded (delayed update detected)");
             }
+
+            // Circuit breaker: count consecutive violations from history
+            let mut violations = cb.consecutive_violations;
+            let mut should_trigger = false;
+            if price_diff > config.circuit_breaker_threshold_bps {
+                violations += 1;
+                if violations >= 3 {
+                    should_trigger = true;
+                }
+            } else {
+                violations = 0;
+            }
+
+            if should_trigger {
+                env.storage().instance().set(
+                    &DataKey::CircuitBreaker,
+                    &CircuitBreakerState {
+                        triggered: true,
+                        trigger_ledger: current_ledger,
+                        trigger_timestamp: current_time,
+                        consecutive_violations: violations,
+                    },
+                );
+                env.events().publish(
+                    (symbol_short!("CbTrip"),),
+                    (price_diff, violations, current_ledger),
+                );
+                panic!("flash-loan guard: circuit breaker tripped");
+            } else {
+                env.storage().instance().set(
+                    &DataKey::CircuitBreaker,
+                    &CircuitBreakerState {
+                        triggered: false,
+                        trigger_ledger: 0,
+                        trigger_timestamp: 0,
+                        consecutive_violations: violations,
+                    },
+                );
+            }
         }
+
+        // Update price history (keep last 10)
+        let mut new_history = Vec::from_array(&env, []);
+        if price_history.len() >= 10 {
+            for i in 1..price_history.len() {
+                new_history.push_back(price_history.get(i).unwrap().clone());
+            }
+        } else {
+            for item in price_history.iter() {
+                new_history.push_back(item.clone());
+            }
+        }
+        new_history.push_back(PriceSnapshot {
+            price,
+            ledger: current_ledger,
+            oracle_timestamp,
+            oracle_sequence,
+        });
+        env.storage().instance().set(&DataKey::PriceSequenceHistory, &new_history);
 
         // Store snapshot with TTL to ensure it must be refreshed regularly
         env.storage().instance().set_with_ttl(
@@ -363,20 +461,6 @@ impl FlashLoanGuardContract {
         );
     }
 
-    /// Core flash-loan guard check.
-    ///
-    /// Called before any price-sensitive vault operation (swap, liquidation, etc.).
-    /// Compares the current oracle price against the stored snapshot.
-    ///
-    /// Blocks execution if:
-    ///   1. No snapshot exists yet (cold-start protection).
-    ///   2. The snapshot was taken in the SAME ledger as the current call
-    ///      (same-block manipulation detection).
-    ///   3. The price deviation from the snapshot exceeds `max_intra_ledger_deviation_bps`.
-    ///   4. (NEW) The oracle data is stale (exceeds freshness timeout).
-    ///   5. (NEW) The snapshot age exceeds ledger timing edge case threshold.
-    ///
-    /// Returns the current price on success.
     pub fn assert_price_safe(env: Env) -> i128 {
         let config: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
         let current_time = env.ledger().timestamp();
@@ -389,12 +473,10 @@ impl FlashLoanGuardContract {
 
         let current_ledger = env.ledger().sequence();
 
-        // --- Same-ledger manipulation check ---
         if current_ledger == snap.ledger {
             panic!("flash-loan guard: price snapshot taken in same ledger");
         }
 
-        // --- NEW: Oracle freshness validation (detect stale data) ---
         if current_time > snap.oracle_timestamp + config.max_oracle_staleness_seconds {
             env.events().publish(
                 (symbol_short!("flg"), symbol_short!("stale_chk")),
@@ -409,8 +491,6 @@ impl FlashLoanGuardContract {
             panic!("flash-loan guard: oracle data stale during assert_price_safe");
         }
 
-        // --- NEW: Ledger timing edge case detection ---
-        // If snapshot is too old relative to current ledger, reject as safety measure
         if current_ledger > snap.ledger + (config.max_oracle_update_gap_seconds / 5) as u32 {
             env.events().publish(
                 (symbol_short!("flg"), symbol_short!("tim_edge")),
@@ -425,11 +505,9 @@ impl FlashLoanGuardContract {
             panic!("flash-loan guard: snapshot too old (ledger timing edge case)");
         }
 
-        // --- Fetch live price ---
         let oracle = PriceOracleClient::new(&env, &config.oracle);
         let current_price = oracle.get_price(&config.guarded_asset);
 
-        // --- Deviation check ---
         let diff = if current_price > snap.price {
             current_price - snap.price
         } else {
@@ -472,14 +550,23 @@ impl FlashLoanGuardContract {
         current_price
     }
 
-    /// Returns the current stored snapshot, if any.
     pub fn get_snapshot(env: Env) -> Option<PriceSnapshot> {
         env.storage().instance().get(&DataKey::PriceSnapshot)
     }
 
-    /// Returns the current config.
     pub fn get_config(env: Env) -> Config {
         env.storage().instance().get(&DataKey::Config).expect("not initialized")
+    }
+
+    pub fn get_circuit_breaker(env: Env) -> CircuitBreakerState {
+        env.storage().instance()
+            .get(&DataKey::CircuitBreaker)
+            .unwrap_or(CircuitBreakerState {
+                triggered: false,
+                trigger_ledger: 0,
+                trigger_timestamp: 0,
+                consecutive_violations: 0,
+            })
     }
 }
 

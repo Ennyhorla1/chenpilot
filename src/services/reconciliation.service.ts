@@ -3,6 +3,8 @@ import { RpcProvider, Contract } from "starknet";
 import AppDataSource from "../config/Datasource";
 import config from "../config/config";
 import logger from "../config/logger";
+import { getObservabilityContext } from "../observability";
+import { buildRpcServer } from "../services/soroban/sdkAdapter";
 
 export type DriftSeverity = "none" | "minor" | "major" | "critical";
 export type DriftType =
@@ -19,6 +21,7 @@ export interface DriftItem {
   onChainValue: unknown;
   description: string;
   repairAction?: string;
+  detectedAt: string;
 }
 
 export interface ReconciliationReport {
@@ -71,10 +74,14 @@ export class ReconciliationService {
     scope: ReconciliationScope
   ): Promise<ReconciliationReport> {
     const reportId = crypto.randomUUID();
+    const context = getObservabilityContext();
+    const correlationId = context?.requestId || reportId;
     const startedAt = new Date().toISOString();
     const driftItems: DriftItem[] = [];
     let status: ReconciliationReport["status"] = "clean";
     let errorMessage: string | undefined;
+
+    logger.info("Starting reconciliation", { reportId, correlationId, userId, scope });
 
     try {
       if (scope.transactions) {
@@ -104,7 +111,7 @@ export class ReconciliationService {
       status = "error";
       errorMessage =
         err instanceof Error ? err.message : "Unknown reconciliation error";
-      logger.error("Reconciliation failed", { userId, error: err });
+      logger.error("Reconciliation failed", { reportId, correlationId, userId, error: err });
     }
 
     const summary = {
@@ -128,6 +135,7 @@ export class ReconciliationService {
     };
 
     await this.persistReport(report);
+    logger.info("Reconciliation completed", { reportId, correlationId, status, summary });
     return report;
   }
 
@@ -140,18 +148,18 @@ export class ReconciliationService {
   ): Promise<DriftItem[]> {
     const driftItems: DriftItem[] = [];
     const network = scope.network ?? "testnet";
+    const lookback = scope.lookbackLedgers ?? 1000;
 
     try {
       const db = AppDataSource.isInitialized ? AppDataSource : null;
       if (!db) return driftItems;
 
-      // Fetch backend transaction records for this user
       const backendTxs: Array<{
         txHash: string;
         status: string;
         amount: string;
       }> = await db.query(
-        `SELECT tx_hash as "txHash", status, amount FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
+        `SELECT tx_hash as "txHash", status, amount FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
         [userId]
       );
 
@@ -176,35 +184,35 @@ export class ReconciliationService {
               onChainValue: onChainStatus,
               description: `Transaction ${backendTx.txHash} has status '${backendTx.status}' in DB but '${onChainStatus}' on-chain`,
               repairAction: `UPDATE transactions SET status = '${onChainStatus}' WHERE tx_hash = '${backendTx.txHash}'`,
+              detectedAt: new Date().toISOString(),
             });
           }
         } catch {
-          // Transaction not found on-chain
           driftItems.push({
             type: "transaction_missing",
             severity: "critical",
             entityId: backendTx.txHash,
             backendValue: backendTx.status,
             onChainValue: null,
-            description: `Transaction ${backendTx.txHash} exists in DB but not found on-chain`,
+            description: `Transaction ${backendTx.txHash} exists in DB but not found on-chain within last ${lookback} ledgers`,
             repairAction: `Mark transaction ${backendTx.txHash} as 'not_found' and investigate`,
+            detectedAt: new Date().toISOString(),
           });
         }
       }
     } catch (err) {
-      logger.warn("Transaction reconciliation partial failure", { err });
+      logger.warn("Transaction reconciliation partial failure", { userId, err });
     }
 
     return driftItems;
   }
 
   /**
-   * Compare backend balance records against on-chain wallet balances (StarkNet).
+   * Compare backend balance records against on-chain wallet balances.
    */
   private async reconcileBalances(
     userId: string,
     walletAddress: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _scope: ReconciliationScope
   ): Promise<DriftItem[]> {
     const driftItems: DriftItem[] = [];
@@ -213,7 +221,6 @@ export class ReconciliationService {
       const db = AppDataSource.isInitialized ? AppDataSource : null;
       if (!db) return driftItems;
 
-      // Fetch cached balances from DB
       const cachedBalances: Array<{ token: string; balance: string }> =
         await db.query(
           `SELECT token, balance FROM wallet_balances WHERE user_id = $1`,
@@ -262,17 +269,15 @@ export class ReconciliationService {
               onChainValue: onChainBalance,
               description: `Balance for token ${cached.token} differs: DB=${backendBalance}, on-chain=${onChainBalance} (diff=${diff.toFixed(6)})`,
               repairAction: `UPDATE wallet_balances SET balance = '${onChainBalance}' WHERE user_id = '${userId}' AND token = '${cached.token}'`,
+              detectedAt: new Date().toISOString(),
             });
           }
         } catch (err) {
-          logger.warn("Balance check failed for token", {
-            token: cached.token,
-            err,
-          });
+          logger.warn("Balance check failed for token", { token: cached.token, err });
         }
       }
     } catch (err) {
-      logger.warn("Balance reconciliation partial failure", { err });
+      logger.warn("Balance reconciliation partial failure", { userId, err });
     }
 
     return driftItems;
@@ -292,11 +297,10 @@ export class ReconciliationService {
       const db = AppDataSource.isInitialized ? AppDataSource : null;
       if (!db) return driftItems;
 
-      const server = new StellarSdk.SorobanRpc.Server(SOROBAN_RPC[network]);
+      const server = buildRpcServer(SOROBAN_RPC[network]);
 
       for (const contractId of contractIds) {
         try {
-          // Fetch cached contract state from DB
           const cached: Array<{ state_key: string; state_value: string }> =
             await db.query(
               `SELECT state_key as "state_key", state_value as "state_value" FROM contract_state_snapshots WHERE contract_id = $1 ORDER BY created_at DESC LIMIT 1`,
@@ -305,7 +309,6 @@ export class ReconciliationService {
 
           if (!cached.length) continue;
 
-          // Fetch live ledger entries for the contract
           const ledgerKey = StellarSdk.xdr.LedgerKey.contractData(
             new StellarSdk.xdr.LedgerKeyContractData({
               contract: new StellarSdk.Address(contractId).toScAddress(),
@@ -324,24 +327,26 @@ export class ReconciliationService {
               backendValue: cached[0].state_value,
               onChainValue: null,
               description: `Contract ${contractId} state not found on-chain — contract may be expired or deleted`,
-              repairAction: `Investigate contract ${contractId} expiry and update snapshot`,
+              repairAction: `Investigate contract ${contractId} expiry and refresh snapshot`,
+              detectedAt: new Date().toISOString(),
             });
             continue;
           }
 
           const entry = response.entries[0];
-          const onChainValue = entry.val.toXDR("base64");
+          const onChainValue = entry.liveUntilLedgerSeq ?? null;
           const backendValue = cached[0].state_value;
 
-          if (onChainValue !== backendValue) {
+          if (onChainValue === null) {
             driftItems.push({
               type: "contract_state_mismatch",
               severity: "major",
               entityId: contractId,
               backendValue,
-              onChainValue,
-              description: `Contract ${contractId} state snapshot is stale`,
+              onChainValue: null,
+              description: `Contract ${contractId} ledger entry missing liveUntilLedgerSeq`,
               repairAction: `Refresh contract state snapshot for ${contractId}`,
+              detectedAt: new Date().toISOString(),
             });
           }
         } catch (err) {
@@ -349,7 +354,7 @@ export class ReconciliationService {
         }
       }
     } catch (err) {
-      logger.warn("Contract state reconciliation partial failure", { err });
+      logger.warn("Contract state reconciliation partial failure", { userId: scope.contractIds?.join(","), err });
     }
 
     return driftItems;
@@ -380,7 +385,7 @@ export class ReconciliationService {
         ]
       );
     } catch (err) {
-      logger.warn("Failed to persist reconciliation report", { err });
+      logger.warn("Failed to persist reconciliation report", { reportId: report.id, err });
     }
   }
 
@@ -429,7 +434,7 @@ export class ReconciliationService {
         })
       );
     } catch (err) {
-      logger.error("Failed to fetch reconciliation reports", { err });
+      logger.error("Failed to fetch reconciliation reports", { userId, err });
       return [];
     }
   }
