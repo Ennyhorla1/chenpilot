@@ -677,3 +677,40 @@ export interface ContractCompatibilityMetadata {
   /** Default version to use when none specified */
   defaultVersion?: string;
 }
+
+/** Failure classification types */
+export enum FailureType {
+  CONNECTION = "connection",
+  AUTHENTICATION = "authentication",
+  HARDWARE_WALLET = "hardware_wallet",
+  NETWORK = "network",
+  TRANSACTION = "transaction",
+  CROSS_CHAIN = "cross_chain",
+  UNKNOWN = "unknown"
+}
+
+/** Structured retry guidance for the client */
+export interface RetryGuidance {
+  shouldRetry: boolean;
+  retryAfterMs?: number;
+  maxRetries: number;
+  currentAttempt: number;
+  backoffStrategy?: "fixed" | "exponential" | "exponential_with_jitter";
+}
+
+/** User/Operator recovery instructions */
+export interface RecoveryInstructions {
+  userActions: string[];
+  operatorActions?: string[];
+  nextSteps: string[];
+}
+
+/** Structured failure analysis result */
+export interface FailureAnalysis {
+  type: FailureType;
+  isRecoverable: boolean;
+  requiresManualIntervention: boolean;
+  retryGuidance?: RetryGuidance;
+  recoveryInstructions: RecoveryInstructions;
+  metadata?: Record<string, unknown>;
+}

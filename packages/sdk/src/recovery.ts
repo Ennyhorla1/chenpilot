@@ -5,7 +5,17 @@ import {
   RecoveryAction,
   RetryHandler,
   RefundHandler,
+  FailureType,
+  RetryGuidance,
+  RecoveryInstructions,
+  FailureAnalysis,
 } from "./types";
+import {
+  SignatureProviderErrorRecovery,
+  signatureProviderErrorRecovery,
+  ErrorRecoveryContext,
+  ErrorRecoveryResult,
+} from "./signature-providers";
 
 function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -20,12 +30,101 @@ export class RecoveryEngine {
   private retryDelayMs: number;
   private retryHandler?: RetryHandler;
   private refundHandler?: RefundHandler;
+  private errorRecovery: SignatureProviderErrorRecovery;
 
   constructor(options?: RecoveryEngineOptions) {
     this.maxRetries = options?.maxRetries ?? 3;
     this.retryDelayMs = options?.retryDelayMs ?? 2000;
     this.retryHandler = options?.retryHandler;
     this.refundHandler = options?.refundHandler;
+    this.errorRecovery = signatureProviderErrorRecovery;
+  }
+
+  /**
+   * Analyzes a failure and provides structured guidance
+   */
+  analyzeFailure(error: unknown, context?: ErrorRecoveryContext): FailureAnalysis {
+    const isRecoverable = this.errorRecovery.canRecover(error);
+    const recoveryInstructions = this.errorRecovery.getRecoveryInstructions(error);
+    
+    let type = FailureType.UNKNOWN;
+    let userActions = recoveryInstructions;
+    let operatorActions: string[] | undefined;
+    let nextSteps: string[] = [];
+
+    // Classify failure type
+    const providerError = this.errorRecovery["strategies"].find(s => s.canRecover(error as any)) 
+      ? error 
+      : (error as Error);
+
+    if (providerError instanceof Error) {
+      const errMsg = providerError.message.toLowerCase();
+      if (errMsg.includes("connection") || errMsg.includes("timeout")) {
+        type = FailureType.CONNECTION;
+      } else if (errMsg.includes("auth") || errMsg.includes("reject") || errMsg.includes("unauthorized")) {
+        type = FailureType.AUTHENTICATION;
+      } else if (errMsg.includes("hardware") || errMsg.includes("device")) {
+        type = FailureType.HARDWARE_WALLET;
+      } else if (errMsg.includes("network")) {
+        type = FailureType.NETWORK;
+      } else if (errMsg.includes("transaction") || errMsg.includes("signing")) {
+        type = FailureType.TRANSACTION;
+      }
+    }
+
+    // Build recovery instructions
+    if (!isRecoverable) {
+      operatorActions = ["Review transaction details", "Check system logs", "Verify network status"];
+      nextSteps = ["Contact support", "Wait for system status update"];
+    } else {
+      nextSteps = ["Follow user actions below", "Retry operation if applicable"];
+    }
+
+    return {
+      type,
+      isRecoverable,
+      requiresManualIntervention: !isRecoverable,
+      recoveryInstructions: {
+        userActions,
+        operatorActions,
+        nextSteps
+      },
+      metadata: {
+        originalError: error
+      }
+    };
+  }
+
+  /**
+   * Gets retry guidance for a failure
+   */
+  getRetryGuidance(error: unknown, currentAttempt: number = 0): RetryGuidance {
+    const analysis = this.analyzeFailure(error);
+    const retryGuidance: RetryGuidance = {
+      shouldRetry: analysis.isRecoverable,
+      maxRetries: this.maxRetries,
+      currentAttempt,
+      backoffStrategy: "exponential_with_jitter"
+    };
+
+    if (analysis.isRecoverable) {
+      // Calculate retry delay
+      const baseDelay = this.retryDelayMs;
+      const jitter = Math.random() * 500;
+      retryGuidance.retryAfterMs = Math.min(
+        baseDelay * Math.pow(2, currentAttempt) + jitter,
+        30000
+      );
+    }
+
+    return retryGuidance;
+  }
+
+  /**
+   * Attempts to recover from a signature provider error
+   */
+  async recoverFromError(error: unknown, context?: ErrorRecoveryContext): Promise<ErrorRecoveryResult> {
+    return this.errorRecovery.recover(error, context);
   }
 
   /**
@@ -94,6 +193,9 @@ export class RecoveryEngine {
     } as RecoveryResult;
   }
 }
+
+// Global recovery manager instance
+export const recoveryManager = new RecoveryEngine();
 
 /**
  * Factory function to create a new RecoveryEngine instance.
