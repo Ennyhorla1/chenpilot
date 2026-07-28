@@ -142,3 +142,164 @@ export interface CommandRegistryOptions {
   backendUrl?: string;
   debounceMs?: number;
 }
+
+// ─── Typed Command Contracts ───────────────────────────────────────────────────
+
+/**
+ * Strongly typed command contract with input/output schemas
+ */
+export interface CommandContract<TInput, TOutput> {
+  name: string;
+  description: string;
+  inputSchema?: any; // Zod schema or similar
+  outputSchema?: any; // Zod schema or similar
+  handler: (context: TypedCommandContext<TInput>) => Promise<TypedCommandResult<TOutput>>;
+  middleware?: CommandMiddleware<TInput>[];
+  permissions?: Permission[];
+  rateLimit?: RateLimitConfig;
+}
+
+/**
+ * Enhanced command context with typed input
+ */
+export interface TypedCommandContext<TInput> extends CommandContext {
+  input: TInput;
+  metadata: {
+    timestamp: number;
+    messageId: string;
+    replyToMessageId?: string;
+  };
+  services: {
+    backend: BackendClient;
+    assetIntelligence?: any; // AssetIntelligence instance
+  };
+}
+
+/**
+ * Typed command result
+ */
+export type TypedCommandResult<TOutput> = 
+  | { success: true; data: TOutput; next?: string }
+  | { success: false; error: CommandError; retry?: boolean };
+
+/**
+ * Command error with recovery information
+ */
+export interface CommandError {
+  code: ErrorCode;
+  message: string;
+  details?: Record<string, any>;
+  recoverable: boolean;
+  userMessage?: string;
+}
+
+/**
+ * Error codes for typed commands
+ */
+export type ErrorCode =
+  | 'INVALID_INPUT'
+  | 'AUTHENTICATION_FAILED'
+  | 'RATE_LIMIT_EXCEEDED'
+  | 'BACKEND_ERROR'
+  | 'NETWORK_ERROR'
+  | 'PERMISSION_DENIED'
+  | 'WORKFLOW_ERROR'
+  | 'VALIDATION_ERROR';
+
+/**
+ * Command middleware function
+ */
+export type CommandMiddleware<TInput> = (
+  context: TypedCommandContext<TInput>,
+  next: () => Promise<TypedCommandResult<any>>
+) => Promise<TypedCommandResult<any>>;
+
+/**
+ * Permission definition
+ */
+export interface Permission {
+  type: 'role' | 'user' | 'custom';
+  value: string;
+  description?: string;
+}
+
+/**
+ * Rate limit configuration
+ */
+export interface RateLimitConfig {
+  maxRequests: number;
+  windowMs: number;
+  skipFailedRequests?: boolean;
+}
+
+/**
+ * Backend client interface
+ */
+export interface BackendClient {
+  executeCommand<TInput, TOutput>(
+    command: string,
+    input: TInput,
+    userId: string
+  ): Promise<TOutput>;
+  
+  executeWorkflow<TState>(
+    workflow: string,
+    state: TState,
+    step: string
+  ): Promise<WorkflowTransitionResult<TState>>;
+}
+
+// ─── Workflow Types ───────────────────────────────────────────────────────────
+
+/**
+ * Workflow definition
+ */
+export interface Workflow<TState> {
+  id: string;
+  name: string;
+  initialState: string;
+  states: Record<string, WorkflowState<TState>>;
+  transitions: Record<string, WorkflowTransition<TState>>;
+  onCompletion?: (state: TState) => Promise<void>;
+  onError?: (error: CommandError, state: TState) => Promise<void>;
+}
+
+/**
+ * Workflow state
+ */
+export interface WorkflowState<TState> {
+  name: string;
+  inputSchema?: any;
+  outputSchema?: any;
+  handler: (state: TState, input: any) => Promise<WorkflowTransitionResult<TState>>;
+  timeout?: number;
+  retryPolicy?: RetryPolicy;
+}
+
+/**
+ * Workflow transition
+ */
+export interface WorkflowTransition<TState> {
+  from: string;
+  to: string;
+  condition?: (state: TState) => boolean;
+  action?: (state: TState) => Promise<void>;
+}
+
+/**
+ * Workflow transition result
+ */
+export interface WorkflowTransitionResult<TState> {
+  nextState: string | null;
+  output: any;
+  state?: TState;
+}
+
+/**
+ * Retry policy
+ */
+export interface RetryPolicy {
+  maxAttempts: number;
+  backoffMs: number;
+  exponentialBackoff?: boolean;
+}

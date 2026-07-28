@@ -23,3 +23,23 @@ export * from "./xdrDecoder";
 export * from "./assetCache";
 export * from "./networkStatus";
 export * from "./contractClient";
+export { 
+  AssetIntelligence, 
+  AssetCache as AssetIntelligenceCache,
+  CacheInvalidator,
+  TrustScorer,
+  TrustSignals,
+  TrustRegistry,
+  MemoryCache,
+  PersistentCache,
+  CacheKey,
+  CachePolicy,
+  EvictionPolicy,
+  AssetValidator,
+  NetworkCompatibility,
+  VersionCompatibility,
+  AssetCacheAdapter,
+  MetadataManagerAdapter,
+  createMigrationAdapters,
+  MIGRATION_GUIDE
+} from "./assetIntelligence";
