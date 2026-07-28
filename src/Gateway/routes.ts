@@ -642,6 +642,51 @@ router.get(
   }
 );
 
+router.get(
+  "/admin/jobs/stats",
+  authenticateToken,
+  requireAdmin,
+  async (_req: Request, res: Response) => {
+    try {
+      const stats = await jobQueueService.getQueueStats();
+      res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        stats,
+      });
+    } catch (error) {
+      logger.error("Failed to fetch job queue stats", { error });
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch job queue stats",
+      });
+    }
+  },
+);
+
+router.get(
+  "/admin/jobs/dead-letter",
+  authenticateToken,
+  requireAdmin,
+  async (req: Request, res: Response) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 25, 100);
+      const jobs = await jobQueueService.getDeadLetterJobs(limit);
+      res.json({
+        success: true,
+        count: jobs.length,
+        jobs,
+      });
+    } catch (error) {
+      logger.error("Failed to fetch dead-letter jobs", { error });
+      res.status(500).json({
+        success: false,
+        message: "Failed to fetch dead-letter jobs",
+      });
+    }
+  },
+);
+
 // --- REAL-TIME UPDATES (Socket.io) ---
 
 /**

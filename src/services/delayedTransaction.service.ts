@@ -16,9 +16,6 @@ export type DelayStrategy =
   | "fee_based"
   | "congestion_based";
 
-/**
- * Configuration for delayed transaction submission
- */
 export interface DelayedTransactionConfig {
   strategy: DelayStrategy;
 
@@ -64,9 +61,6 @@ export type DelayedTransactionStatus =
   | "failed"
   | "cancelled";
 
-/**
- * Delayed transaction record
- */
 export interface DelayedTransaction {
   id: string;
   userId: string;
@@ -148,9 +142,6 @@ export class DelayedTransactionService {
     logger.info("Delayed transaction service initialized with durable framework");
   }
 
-  /**
-   * Create a delayed transaction
-   */
   async createDelayedTransaction(
     userId: string,
     transactionXdr: string,
@@ -170,29 +161,24 @@ export class DelayedTransactionService {
       );
     }
 
-    const delayedTx: DelayedTransaction = {
-      id: this.generateId(),
-      userId,
-      transactionXdr,
-      config,
-      status: "pending",
-      createdAt: Date.now(),
-      retries: 0,
-    };
+    const initialAvailableAt =
+      delayedConfig.strategy === "scheduled" && delayedConfig.scheduledAt
+        ? new Date(delayedConfig.scheduledAt)
+        : new Date();
 
-    // Set initial status based on strategy
-    if (config.strategy === "scheduled" && config.scheduledAt) {
-      if (config.scheduledAt <= Date.now()) {
-        // Already past scheduled time, submit now
-        delayedTx.status = "submitting";
-      } else {
-        delayedTx.status = "pending";
-      }
-    } else if (config.strategy === "fee_based") {
-      delayedTx.status = "waiting_for_fee";
-    } else if (config.strategy === "congestion_based") {
-      delayedTx.status = "waiting_for_congestion";
-    }
+    const job = await jobQueueService.enqueue({
+      queue: "transactions",
+      jobType: "delayed_transaction.submit",
+      userId,
+      availableAt: initialAvailableAt,
+      maxAttempts: delayedConfig.maxRetries ?? 3,
+      metadata: { strategy: delayedConfig.strategy },
+      payload: {
+        userId,
+        transactionXdr,
+        config: delayedConfig,
+      },
+    });
 
     this.pendingDelayedTxs.set(delayedTx.id, delayedTx);
 
@@ -249,6 +235,7 @@ export class DelayedTransactionService {
         // No specific validation needed
         break;
     }
+    return cancelled;
   }
 
   /**
@@ -275,10 +262,7 @@ export class DelayedTransactionService {
       }
     }
 
-    // Clean up processed transactions
-    for (const id of txsToRemove) {
-      this.pendingDelayedTxs.delete(id);
-    }
+    return this.mapJobToDelayedTransaction(job);
   }
 
   /**
@@ -367,7 +351,6 @@ export const delayedTransactionService = new DelayedTransactionService();
         lastUpdated: Date.now(),
       };
     }
-  }
 
   /**
    * Submit a delayed transaction
@@ -442,13 +425,16 @@ export const delayedTransactionService = new DelayedTransactionService();
       return false;
     }
 
-    if (delayedTx.userId !== userId) {
+    if (job.status === "completed" || job.status === "dead_letter" || job.status === "cancelled") {
       return false;
     }
 
-    if (delayedTx.status === "submitted") {
-      return false;
-    }
+    payload.config.scheduledAt = newScheduledAt;
+    job.payload = payload;
+    job.availableAt = new Date(newScheduledAt);
+    job.status = "pending";
+    job.leaseExpiresAt = null;
+    job.leasedBy = null;
 
     delayedTx.status = "cancelled";
 
@@ -463,11 +449,8 @@ export const delayedTransactionService = new DelayedTransactionService();
     return true;
   }
 
-  /**
-   * Get a delayed transaction by ID
-   */
-  getTransaction(id: string): DelayedTransaction | undefined {
-    return this.pendingDelayedTxs.get(id);
+  destroy(): void {
+    logger.info("Delayed transaction service shutdown complete");
   }
 
   /**
@@ -497,16 +480,16 @@ export const delayedTransactionService = new DelayedTransactionService();
       return false;
     }
 
-    if (delayedTx.userId !== userId) {
-      return false;
+    if (job.status === "dead_letter") {
+      return "failed";
     }
 
-    if (delayedTx.config.strategy !== "scheduled") {
-      return false;
+    if (job.status === "cancelled") {
+      return "cancelled";
     }
 
-    if (newScheduledAt < Date.now()) {
-      return false;
+    if (job.status === "leased") {
+      return "submitting";
     }
 
     delayedTx.config.scheduledAt = newScheduledAt;
@@ -519,21 +502,12 @@ export const delayedTransactionService = new DelayedTransactionService();
     return true;
   }
 
-  /**
-   * Generate a unique ID
-   */
-  private generateId(): string {
-    return `delayed_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-  }
+    if (strategy === "congestion_based") {
+      return "waiting_for_congestion";
+    }
 
-  /**
-   * Clean up resources
-   */
-  destroy(): void {
-    this.stopChecking();
-    this.pendingDelayedTxs.clear();
+    return "pending";
   }
 }
 
-// Export singleton instance
 export const delayedTransactionService = new DelayedTransactionService();
