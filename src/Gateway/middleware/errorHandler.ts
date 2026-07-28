@@ -1,9 +1,13 @@
 import { Request, Response, NextFunction } from "express";
 import logger from "../../config/logger";
-import { ApplicationError } from "../../utils/error";
+import {
+  ApplicationError,
+  toCategorizedErrorResponse,
+  ErrorCategory,
+} from "../../utils/error";
 
 /**
- * Interface for the standardized error response
+ * Interface for the standardized error response with taxonomy fields
  */
 interface StandardErrorResponse {
   success: boolean;
@@ -11,9 +15,30 @@ interface StandardErrorResponse {
   error: {
     message: string;
     code: string;
+    category: string;
+    recoverable: boolean;
     details?: unknown;
     stack?: string;
   };
+}
+
+/**
+ * Derive an ErrorCategory from a raw DB error code.
+ */
+function dbCodeToCategory(dbCode: string): ErrorCategory {
+  switch (dbCode) {
+    case "23502":
+    case "23503":
+    case "22001":
+    case "22007":
+    case "22P02":
+    case "23514":
+      return "VALIDATION";
+    case "23505":
+      return "POLICY";
+    default:
+      return "UNKNOWN";
+  }
 }
 
 /**
@@ -35,57 +60,60 @@ export async function ErrorHandler(
   let statusCode = 500;
   let message = "Internal server error";
   let errorCode = "INTERNAL_SERVER_ERROR";
+  let category: ErrorCategory = "UNKNOWN";
+  let recoverable = false;
   const details: unknown = undefined;
 
-  // Handle custom ApplicationErrors
   if (error instanceof ApplicationError) {
-    statusCode = error.statusCode;
-    message = error.message;
-    errorCode =
-      error.constructor.name.replace(/Error$/, "").toUpperCase() + "_ERROR";
-  }
-  // Handle database (TypeORM) errors
-  else if (error.code) {
+    const categorized = toCategorizedErrorResponse(error);
+    statusCode = categorized.statusCode;
+    message = categorized.message;
+    errorCode = categorized.code;
+    category = categorized.category as ErrorCategory;
+    recoverable = statusCode >= 500 || statusCode === 429;
+  } else if (error.code) {
+    category = dbCodeToCategory(error.code);
+    recoverable = false;
+
     switch (error.code) {
-      case "23502": // Not null violation
+      case "23502":
         message = error.column
           ? `Field '${error.column}' cannot be empty.`
           : "A required field is missing.";
         statusCode = 400;
         errorCode = "MISSING_FIELD";
         break;
-      case "23505": // Unique violation
+      case "23505":
         message = "Duplicate entry. This record already exists.";
         statusCode = 409;
         errorCode = "DUPLICATE_ENTRY";
         break;
-      case "23503": // Foreign key violation
+      case "23503":
         message = "Invalid reference. The related record does not exist.";
         statusCode = 400;
         errorCode = "INVALID_REFERENCE";
         break;
-      case "22001": // Value too long
+      case "22001":
         message = "Data is too long for the specified field.";
         statusCode = 400;
         errorCode = "VALUE_TOO_LONG";
         break;
-      case "22007": // Invalid datetime format
+      case "22007":
         message = "Invalid date/time format.";
         statusCode = 400;
         errorCode = "INVALID_DATE_FORMAT";
         break;
-      case "22P02": // Invalid text representation
+      case "22P02":
         message = "Invalid input format.";
         statusCode = 400;
         errorCode = "INVALID_INPUT_FORMAT";
         break;
-      case "23514": // Check violation
+      case "23514":
         message = "Field value does not meet required constraints.";
         statusCode = 400;
         errorCode = "CONSTRAINT_VIOLATION";
         break;
       default:
-        // Use pre-existing message if it's from a library we trust
         if (error.message) message = error.message;
         break;
     }
@@ -93,11 +121,11 @@ export async function ErrorHandler(
     message = error.message;
   }
 
-  // Log the error with context
   logger.error("Request error", {
     message: error.message || "No message provided",
     statusCode,
     errorCode,
+    category,
     method: req.method,
     url: req.originalUrl,
     stack: error.stack,
@@ -109,8 +137,9 @@ export async function ErrorHandler(
     error: {
       message,
       code: errorCode,
+      category,
+      recoverable,
       details,
-      // Only include stack trace in development
       stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
     },
   };

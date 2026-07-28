@@ -46,6 +46,10 @@ export interface ToolResult {
   message?: string;
   data?: Record<string, unknown>;
   error?: string;
+  /** Machine-readable error category (TRANSPORT, VALIDATION, SIMULATION, POLICY, COMPATIBILITY, EXECUTION, UNKNOWN) */
+  errorCategory?: string;
+  /** Machine-readable error code for the specific failure */
+  errorCode?: string;
 }
 
 export interface ToolExecutionError extends Error {

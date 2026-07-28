@@ -1,15 +1,57 @@
 import express, { NextFunction } from "express";
 
+export type ErrorCategory =
+  | "TRANSPORT"
+  | "VALIDATION"
+  | "SIMULATION"
+  | "POLICY"
+  | "COMPATIBILITY"
+  | "EXECUTION"
+  | "UNKNOWN";
+
+/**
+ * Map an HTTP status code to an ErrorCategory.
+ */
+export function httpStatusToCategory(status: number): ErrorCategory {
+  if (status === 429) return "POLICY";
+  if (status === 422 || status === 400) return "VALIDATION";
+  if (status === 401 || status === 403) return "POLICY";
+  if (status === 404) return "VALIDATION";
+  if (status >= 500) return "EXECUTION";
+  return "UNKNOWN";
+}
+
 export class ApplicationError extends Error {
   statusCode: number;
   message: string;
+  errorCategory: ErrorCategory;
+  errorCode?: string;
 
-  constructor(message: string, statusCode: number) {
+  constructor(message: string, statusCode: number, errorCode?: string) {
     super(message);
     this.statusCode = statusCode;
     this.message = message;
+    this.errorCategory = httpStatusToCategory(statusCode);
+    this.errorCode = errorCode;
     Error.captureStackTrace(this, this.constructor);
   }
+}
+
+export function toCategorizedErrorResponse(err: ApplicationError): {
+  message: string;
+  code: string;
+  category: string;
+  statusCode: number;
+} {
+  return {
+    message: err.message,
+    code: err.errorCode ?? `${err.constructor.name
+      .replace(/([A-Z])/g, "_$1")
+      .toUpperCase()
+      .replace(/^_/, "")}`,
+    category: err.errorCategory,
+    statusCode: err.statusCode,
+  };
 }
 
 export class NotFoundError extends ApplicationError {

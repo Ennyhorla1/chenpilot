@@ -84,18 +84,22 @@ export abstract class BaseTool<
   }
 
   /**
-   * error result
+   * error result with optional error category and code
    */
   protected createErrorResult(
     action: string,
     error: string,
-    data: Record<string, unknown> = {}
+    data: Record<string, unknown> = {},
+    errorCategory?: string,
+    errorCode?: string,
   ): ToolResult {
     return {
       action,
       status: "error",
       error,
       data,
+      errorCategory,
+      errorCode,
     };
   }
 }

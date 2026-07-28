@@ -57,9 +57,19 @@ export class AgentRequestError extends Error {
     message: string,
     idempotencyKey: string,
     attempts: number,
-    statusCode?: number
+    statusCode?: number,
   ) {
-    super(message);
+    const category = statusCode !== undefined
+      ? categorizeHttpStatus(statusCode)
+      : ErrorCategory.TRANSPORT;
+    const code = statusCode !== undefined
+      ? `HTTP_${statusCode}`
+      : "AGENT_REQUEST_FAILED";
+    const recoverable = statusCode !== undefined
+      ? RETRIABLE_STATUS_CODES.has(statusCode)
+      : false;
+
+    super({ category, code, message, recoverable });
     this.name = "AgentRequestError";
     this.idempotencyKey = idempotencyKey;
     this.attempts = attempts;
@@ -89,6 +99,14 @@ type FetchLike = (
 ) => Promise<FetchResponseLike>;
 
 const RETRIABLE_STATUS_CODES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+function categorizeHttpStatus(status: number): ErrorCategory {
+  if (status === 429) return ErrorCategory.POLICY;
+  if (status === 422 || status === 400) return ErrorCategory.VALIDATION;
+  if (status === 401 || status === 403) return ErrorCategory.POLICY;
+  if (status >= 500) return ErrorCategory.EXECUTION;
+  return ErrorCategory.TRANSPORT;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -209,7 +227,12 @@ export class AgentClient {
     const retryDelayMs = request.retryDelayMs ?? this.defaultRetryDelayMs;
 
     let attempts = 0;
-    let lastErrorMessage = "Request failed";
+    let lastCategorizedError: CategorizedError = {
+      category: "TRANSPORT",
+      code: "UNKNOWN",
+      message: "Request failed",
+      recoverable: false,
+    };
     let lastStatusCode: number | undefined;
 
     while (attempts < maxRetries) {
@@ -233,21 +256,20 @@ export class AgentClient {
         if (!response.ok) {
           lastStatusCode = response.status;
           const body = await response.text().catch(() => "");
-          const message = body || `HTTP ${response.status}`;
+          lastCategorizedError = parseCategorizedError(body, response.status);
 
           if (
             !RETRIABLE_STATUS_CODES.has(response.status) ||
             attempts >= maxRetries
           ) {
             throw new AgentRequestError(
-              `Agent query failed: ${message}`,
+              `Agent query failed: ${lastCategorizedError.message}`,
               idempotencyKey,
               attempts,
-              response.status
+              response.status,
             );
           }
 
-          lastErrorMessage = `Agent query failed: ${message}`;
           await sleep(retryDelayMs * attempts);
           continue;
         }
@@ -259,6 +281,10 @@ export class AgentClient {
           result: parsed.result,
         };
       } catch (error) {
+        if (error instanceof AgentRequestError) {
+          throw error;
+        }
+
         const isAbort =
           error instanceof Error &&
           (error.name === "AbortError" || error.message.includes("aborted"));
@@ -267,19 +293,23 @@ export class AgentClient {
           (error instanceof Error &&
             error.message.toLowerCase().includes("network"));
 
-        if (error instanceof AgentRequestError) {
-          throw error;
-        }
-
-        lastErrorMessage =
-          error instanceof Error ? error.message : String(error);
+        lastCategorizedError = {
+          category: isAbort
+            ? "TRANSPORT"
+            : isNetwork
+              ? "TRANSPORT"
+              : "UNKNOWN",
+          code: isAbort ? "REQUEST_ABORTED" : isNetwork ? "NETWORK_ERROR" : "UNKNOWN",
+          message: error instanceof Error ? error.message : String(error),
+          recoverable: isNetwork || isAbort,
+        };
 
         if (!(isAbort || isNetwork) || attempts >= maxRetries) {
           throw new AgentRequestError(
-            `Agent query failed: ${lastErrorMessage}`,
+            `Agent query failed: ${lastCategorizedError.message}`,
             idempotencyKey,
             attempts,
-            lastStatusCode
+            lastStatusCode,
           );
         }
 
@@ -290,10 +320,10 @@ export class AgentClient {
     }
 
     throw new AgentRequestError(
-      `Agent query failed: ${lastErrorMessage}`,
+      `Agent query failed: ${lastCategorizedError.message}`,
       idempotencyKey,
       attempts,
-      lastStatusCode
+      lastStatusCode,
     );
   }
 
@@ -371,9 +401,16 @@ export class AgentClient {
       swapRequest.fromChain !== ChainId.BITCOIN ||
       swapRequest.toChain !== ChainId.STELLAR
     ) {
-      throw new Error(
-        "executeBtcToStellarSwap only supports fromChain=bitcoin and toChain=stellar"
-      );
+      throw new SdkError({
+        category: ErrorCategory.VALIDATION,
+        code: "INVALID_SWAP_DIRECTION",
+        message:
+          "executeBtcToStellarSwap only supports fromChain=bitcoin and toChain=stellar",
+        details: {
+          fromChain: swapRequest.fromChain,
+          toChain: swapRequest.toChain,
+        },
+      });
     }
 
     const idempotencyKey =
