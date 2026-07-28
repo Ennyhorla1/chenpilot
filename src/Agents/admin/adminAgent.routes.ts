@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
-import { authenticateToken } from "../../Auth/auth.middleware";
-import { requireAdmin } from "../../Gateway/middleware/rbac.middleware";
+import { requireAdminAuth } from "../../Gateway/middleware/adminAuth";
 import { agentMetricsService } from "../agentMetrics.service";
 import { AgentType, ExecutionStatus } from "../agentExecutionMetrics.entity";
 import { PromptVersion } from "../registry/PromptVersion.entity";
@@ -217,8 +216,7 @@ router.post(
  */
 router.get(
   "/metrics",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   async (req: Request, res: Response) => {
     try {
       const { agentType, userId, status, startDate, endDate, limit, offset } =
@@ -255,8 +253,7 @@ router.get(
  */
 router.get(
   "/metrics/daily",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   async (req: Request, res: Response) => {
     try {
       const { days } = req.query;
@@ -286,8 +283,7 @@ router.get(
  */
 router.get(
   "/metrics/time-series",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   async (req: Request, res: Response) => {
     try {
       const { hours } = req.query;
@@ -318,8 +314,7 @@ router.get(
  */
 router.get(
   "/prompts",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   async (req: Request, res: Response) => {
     try {
       const promptPerformance =
@@ -346,8 +341,7 @@ router.get(
  */
 router.put(
   "/prompts/:promptId",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   async (req: Request, res: Response) => {
     try {
       const { promptId } = req.params;
@@ -465,8 +459,7 @@ router.get(
  */
 router.post(
   "/prompts",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   async (req: Request, res: Response) => {
     try {
       const { name, type, content, version, isActive, weight } = req.body;
@@ -512,8 +505,7 @@ router.post(
  */
 router.get(
   "/tools",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   async (req: Request, res: Response) => {
     try {
       const tools = await agentMetricsService.getAgentTools();
@@ -540,8 +532,7 @@ router.get(
  */
 router.put(
   "/tools/:toolId/toggle",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   async (req: Request, res: Response) => {
     try {
       const { toolId } = req.params;
@@ -588,8 +579,7 @@ router.put(
  */
 router.get(
   "/performance",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   async (req: Request, res: Response) => {
     try {
       const { hours = 24 } = req.query;

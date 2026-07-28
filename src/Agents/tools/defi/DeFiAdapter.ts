@@ -61,6 +61,22 @@ export abstract class DeFiAdapter {
     if (!this.config.enabled) {
       console.warn(`[DeFiAdapter] ${this.config.name} adapter is disabled`);
     }
+
+    const circuitBreakerOptions: CircuitBreakerOptions = {
+      name: `DeFiAdapter-${this.config.name}`,
+      failureThreshold: 5,
+      recoveryTimeout: 30000,
+      successThreshold: 2,
+      timeoutMs: this.config.timeout,
+    };
+    this.circuitBreaker = new CircuitBreaker(circuitBreakerOptions);
+
+    this.retryOptions = {
+      maxAttempts: this.config.retry.maxAttempts,
+      initialDelayMs: this.config.retry.backoffMs,
+      maxDelayMs: 30000,
+      backoffMultiplier: 2,
+    };
   }
 
   /**
@@ -94,7 +110,7 @@ export abstract class DeFiAdapter {
   }
 
   /**
-   * Execute an API request with retry logic
+   * Execute an API request with retry logic and circuit breaker
    */
   /**
    * Execute an API request with strict schema validation and full resilience wrapping.

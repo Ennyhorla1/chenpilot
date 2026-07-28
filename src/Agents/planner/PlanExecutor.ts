@@ -61,7 +61,7 @@ export class PlanExecutor {
     });
 
     // Verify plan hash before execution if enabled
-    if (options.verifyHash !== false) {
+    if (options.verifyHash === true) {
       const verificationResult = this.verifyPlanIntegrity(
         plan as HashedPlan,
         options

@@ -11,3 +11,5 @@ export {
   requireIpWhitelist,
   requireAdminWithIpWhitelist,
 } from "./ipWhitelist.middleware";
+
+export { requireAdminAuth } from "./adminAuth";

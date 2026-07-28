@@ -28,11 +28,7 @@ import governanceRoutes from "../Agents/admin/governance.routes";
 import experimentRoutes from "../Agents/admin/experiment.routes";
 import simulationRoutes from "../Agents/admin/simulation.routes";
 import { stellarLiquidityTool } from "../Agents/tools/stellarLiquidityTool";
-import { authenticateToken } from "../Auth/auth.middleware";
-import {
-  requireAdmin,
-  requireOwnerOrElevated,
-} from "./middleware/rbac.middleware";
+import logger from "../config/logger";
 import { auditLogService } from "../AuditLog/auditLog.service";
 import { AuditAction, AuditSeverity } from "../AuditLog/auditLog.entity";
 import contractRegistryRoutes from "../ContractRegistry/contractRegistry.routes";
@@ -42,80 +38,21 @@ import { BotSessionType, BotPlatform } from "../Bot/botSession.entity";
 import { operatorReportingService } from "../services/operatorReporting.service";
 
 const router = Router();
-
 router.use(helmet());
 
-// --- WEBHOOK HMAC VERIFICATION ---
-
-/**
- * Verify HMAC-SHA256 signature on incoming webhook requests.
- * Expects the signature in the `x-webhook-signature` header as `sha256=<hex>`.
- * Set WEBHOOK_SECRET in your environment to enable enforcement.
- */
-function verifyWebhookSignature(
-  req: Request,
-  res: Response,
-  next: () => void
-): void {
-  const secret = process.env.WEBHOOK_SECRET;
-  if (!secret) {
-    // If no secret is configured, skip verification (dev/test environments).
-    // In production, WEBHOOK_SECRET must be set.
-    logger.warn(
-      "WEBHOOK_SECRET not configured — skipping webhook signature verification"
-    );
-    next();
-    return;
-  }
-
-  const signature = req.headers["x-webhook-signature"] as string | undefined;
-  if (!signature) {
-    res
-      .status(401)
-      .json({ success: false, message: "Missing webhook signature" });
-    return;
-  }
-
-  const rawBody = JSON.stringify(req.body);
-  const expected =
-    "sha256=" +
-    crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
-
-  const sigBuffer = Buffer.from(signature);
-  const expectedBuffer = Buffer.from(expected);
-
-  if (
-    sigBuffer.length !== expectedBuffer.length ||
-    !crypto.timingSafeEqual(sigBuffer, expectedBuffer)
-  ) {
-    logger.warn("Webhook signature mismatch", { receivedSignature: signature });
-    res
-      .status(401)
-      .json({ success: false, message: "Invalid webhook signature" });
-    return;
-  }
-
-  next();
-}
-
-// --- RATE LIMITING STRATEGIES ---
-
-// AC: 100 req/min per IP for public/general routes
+// General rate limiter
 const generalLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
+  windowMs: 1 * 60 * 1000,
   limit: 100,
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { success: false, message: "Too many requests. Please slow down." },
 });
-
-// Apply general limiter to all routes by default
 router.use(generalLimiter);
 
-// --- ROUTES ---
-
-// Mount auth routes
+// Auth routes (includes login, logout, refresh, sessions)
 router.use("/auth", authRoutes);
+router.use("/auth", authExtraRoutes);
 
 // Mount user preferences routes
 router.use("/user/preferences", userPreferencesRoutes);
@@ -128,10 +65,11 @@ router.use("/contracts", contractMetadataRoutes);
 
 // Mount Horizon proxy routes (authenticated)
 router.use("/horizon", horizonProxyRoutes);
-// Mount audit log routes
+
+// Audit logs
 router.use("/audit", auditLogRoutes);
 
-// Mount admin agent management routes (requires admin role)
+// Admin agent routes
 router.use("/admin/agents", adminAgentRoutes);
 router.use("/admin/governance", governanceRoutes);
 
@@ -214,7 +152,8 @@ router.post("/bot/metrics", async (req: Request, res: Response) => {
       "/swap": AuditAction.BOT_COMMAND_SWAP,
     };
 
-    const auditAction = commandMap[command] || AuditAction.BOT_COMMAND_START;
+// Realtime
+router.use("/realtime", realtimeRoutes);
 
     // Log to audit log
     await auditLogService.log({
@@ -653,214 +592,29 @@ router.post("/signup", async (req: Request, res: Response) => {
   }
 });
 
-/**
- * @swagger
- * /api/account/{userId}/transactions:
- *   get:
- *     summary: Get paginated Stellar transaction history
- *     tags: [Transactions]
- *     parameters:
- *       - in: path
- *         name: userId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: ID of the user
- *       - in: query
- *         name: type
- *         schema:
- *           type: string
- *           enum: [funding, deployment, swap, transfer, all]
- *         description: Filter by transaction type
- *       - in: query
- *         name: startDate
- *         schema:
- *           type: string
- *           format: date-time
- *         description: Start date filter (ISO 8601)
- *       - in: query
- *         name: endDate
- *         schema:
- *           type: string
- *           format: date-time
- *         description: End date filter (ISO 8601)
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           minimum: 1
- *           maximum: 100
- *           default: 20
- *         description: Number of transactions per page
- *       - in: query
- *         name: cursor
- *         schema:
- *           type: string
- *         description: Pagination cursor from previous response
- *     responses:
- *       200:
- *         description: Paginated transaction list
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 transactions:
- *                   type: array
- *                   items:
- *                     $ref: '#/components/schemas/TransactionHistoryItem'
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     nextCursor:
- *                       type: string
- *                     prevCursor:
- *                       type: string
- *                     limit:
- *                       type: integer
- *                     total:
- *                       type: integer
- *       400:
- *         description: Invalid query parameters
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       404:
- *         description: User not found
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- *       500:
- *         description: Internal server error
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/ErrorResponse'
- */
-router.get(
-  "/account/:userId/transactions",
-  authenticateToken,
-  requireOwnerOrElevated("userId"),
-  async (req: Request, res: Response) => {
-    try {
-      const { userId } = req.params;
+// Liquidity
+router.post("/liquidity", async (req: Request, res: Response) => {
+  try {
+    const { assetCode, assetIssuer, depthLimit } = req.body;
+    const result = await stellarLiquidityTool.execute({
+      assetCode,
+      assetIssuer,
+      depthLimit,
+    });
+    res.json(result);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
+    res.status(500).json({ error: errorMessage });
+  }
+});
 
-      // Ensure userId is a string
-      if (!userId || Array.isArray(userId)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid userId parameter",
-        });
-      }
-
-      // Extract and validate query parameters
-      const { type, startDate, endDate, limit, cursor } = req.query as Record<
-        string,
-        string | undefined
-      >;
-
-      // Validate type parameter
-      const validTypes = ["funding", "deployment", "swap", "transfer", "all"];
-      if (type && !validTypes.includes(type)) {
-        return res.status(400).json({
-          success: false,
-          message: `Invalid type. Must be one of: ${validTypes.join(", ")}`,
-        });
-      }
-
-      // Validate limit parameter
-      const parsedLimit = limit ? parseInt(limit, 10) : 20;
-      if (isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 100) {
-        return res.status(400).json({
-          success: false,
-          message: "Limit must be a number between 1 and 100",
-        });
-      }
-
-      // Validate date parameters
-      if (startDate && isNaN(Date.parse(startDate))) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid startDate format. Use ISO 8601 format (e.g., 2024-01-01T00:00:00Z)",
-        });
-      }
-
-      if (endDate && isNaN(Date.parse(endDate))) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Invalid endDate format. Use ISO 8601 format (e.g., 2024-01-01T00:00:00Z)",
-        });
-      }
-
-      // Build query parameters
-      const queryParams: TransactionQueryParams = {
-        type: type as TransactionType,
-        startDate,
-        endDate,
-        limit: parsedLimit,
-        cursor,
-      };
-
-      // Fetch transaction history
-      const result = await transactionHistoryService.getTransactionHistory(
-        userId,
-        queryParams
-      );
-
-      return res.status(200).json({
-        success: true,
-        ...result,
-      });
-    } catch (error) {
-      console.error("Transaction history error:", error);
-      const message =
-        error instanceof Error ? error.message : "Internal server error";
-      const statusCode = message.includes("User not found") ? 404 : 500;
-
-      return res.status(statusCode).json({
-        success: false,
-        message,
-      });
-    }
-  },
-
-  router.post("/liquidity", async (req: Request, res: Response) => {
-    try {
-      const { assetCode, assetIssuer, depthLimit } = req.body;
-
-      const result = await stellarLiquidityTool.execute({
-        assetCode,
-        assetIssuer,
-        depthLimit,
-      });
-
-      res.json(result);
-    } catch (err) {
-      // Check if it's a standard Error object
-      const errorMessage =
-        err instanceof Error ? err.message : "An unknown error occurred";
-
-      res.status(500).json({ error: errorMessage });
-    }
-  })
-);
-
-// GET /admin/stats - Internal admin route for CPU and memory usage
+// Admin stats
 router.get(
   "/admin/stats",
-  authenticateToken,
-  requireAdmin,
+  requireAdminAuth(),
   (req: Request, res: Response) => {
     const memUsage = process.memoryUsage();
     const cpuUsage = process.cpuUsage();
-
     res.json({
       success: true,
       timestamp: new Date().toISOString(),
