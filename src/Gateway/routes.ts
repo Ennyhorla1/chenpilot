@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
-import { rateLimit } from "express-rate-limit";
 import helmet from "helmet";
+import RateLimiterService from "./middleware/rateLimiter.service";
 import * as os from "os";
 import * as crypto from "crypto";
 import * as StellarSdk from "@stellar/stellar-sdk";
@@ -32,6 +32,7 @@ import logger from "../config/logger";
 import { auditLogService } from "../AuditLog/auditLog.service";
 import { AuditAction, AuditSeverity } from "../AuditLog/auditLog.entity";
 import contractRegistryRoutes from "../ContractRegistry/contractRegistry.routes";
+import kycRoutes from "../services/kyc/kyc.routes";
 import { getSocketManager } from "./socketManager";
 import { BotSessionService } from "../Bot/botSession.service";
 import { BotSessionType, BotPlatform } from "../Bot/botSession.entity";
@@ -40,14 +41,8 @@ import { operatorReportingService } from "../services/operatorReporting.service"
 const router = Router();
 router.use(helmet());
 
-// General rate limiter
-const generalLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  limit: 100,
-  standardHeaders: "draft-8",
-  legacyHeaders: false,
-  message: { success: false, message: "Too many requests. Please slow down." },
-});
+// Redis-backed general rate limiter (shared across all instances)
+const generalLimiter = RateLimiterService.createGeneralLimiter();
 router.use(generalLimiter);
 
 // Auth routes (includes login, logout, refresh, sessions)
@@ -62,6 +57,9 @@ router.use("/export", dataExportRoutes);
 
 // Mount contract metadata discovery routes
 router.use("/contracts", contractMetadataRoutes);
+
+// Mount KYC submission routes (with strict rate limiting)
+router.use("/kyc", kycRoutes);
 
 // Mount Horizon proxy routes (authenticated)
 router.use("/horizon", horizonProxyRoutes);
