@@ -69,6 +69,10 @@ Browse all [good first issues](https://github.com/gear5labs/chenpilot/issues?q=l
 - **Testing**: Add unit tests for new logic in the `tests/unit` directory.
 - **Linting**: We use Husky and lint-staged. Your code will be automatically formatted and linted on commit.
 
+### Configuration file convention
+
+Tool configuration files (ESLint, commitlint, etc.) use the `.mjs` or `.js` extension — not `.mts` or `.ts` — because most tools do not natively resolve TypeScript config files. Keep configs in JavaScript unless the tool explicitly documents TypeScript support.
+
 ## 🏛️ Architecture Overview
 
 - **Gateway**: The API entry point (`src/Gateway`).

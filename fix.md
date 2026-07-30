@@ -1,13 +1,13 @@
-Add rate limiting specifically to KYC submission endpoints
+Consolidate duplicate config files: commitlint.config.js vs .ts, hardhat.config.js vs .ts, eslint.config.mjs vs .mts
 Repo Avatar
 gear5labs/chenpilot
-src/services/kyc and KYC_PROVIDER env var indicate KYC integration exists. KYC submission endpoints typically handle PII and third-party API calls with their own rate limits (and cost per call) — these should have tighter, dedicated rate limiting distinct from general API rate limits to prevent abuse (e.g., spamming a paid KYC provider).
+The repo root has both a .js and .ts version of commitlint.config, hardhat.config, and eslint.config. Having both is confusing for contributors (which one is actually loaded?) and risks the two files drifting out of sync silently.
 
 Proposed Work
 
-Audit whether KYC endpoints currently share the general rate limiter or have dedicated limits
-Add a stricter per-user/per-IP limit scoped to KYC submission routes
+Determine which file is actually loaded by each tool (Node config resolution order)
+Delete the unused duplicate, or clearly document why both exist (e.g., one is for a legacy toolchain)
 Acceptance Criteria
 
- KYC endpoints have documented, dedicated rate limits
- Test confirming limit enforcement
+ Duplicate config pairs resolved to a single source of truth each
+ CONTRIBUTING.md notes the config file convention going forward
