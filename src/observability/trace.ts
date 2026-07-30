@@ -1,4 +1,4 @@
-import { getObservabilityContext, ObservabilityContext } from "./context";
+import { getExecutionContext, ExecutionContext } from "./context";
 
 /**
  * trace.ts — execution correlation helpers for end-to-end diagnosability
@@ -34,8 +34,8 @@ function nextId(): string {
   return `${Date.now().toString(36)}-${COUNTER.value.toString(36)}`;
 }
 
-export function getTraceId(context?: ObservabilityContext): string {
-  return context?.rootExecutionId || getObservabilityContext()?.rootExecutionId || nextId();
+export function getTraceId(context?: ExecutionContext): string {
+  return context?.rootExecutionId || getExecutionContext()?.rootExecutionId || nextId();
 }
 
 export function startSpan(options: {
@@ -44,7 +44,7 @@ export function startSpan(options: {
   parentSpanId?: string;
   metadata?: Record<string, unknown>;
 }): TraceSpan {
-  const context = getObservabilityContext();
+  const context = getExecutionContext();
   const span: TraceSpan = {
     traceId: getTraceId(context),
     spanId: nextId(),
@@ -74,8 +74,8 @@ export function getTrace(traceId: string): TraceSpan[] {
   return activeTraces.get(traceId) || [];
 }
 
-export function buildOutboundHeaders(context?: ObservabilityContext): Record<string, string> {
-  const resolved = context || getObservabilityContext();
+export function buildOutboundHeaders(context?: ExecutionContext): Record<string, string> {
+  const resolved = context || getExecutionContext();
   if (!resolved) {
     return {};
   }

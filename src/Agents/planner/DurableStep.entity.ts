@@ -31,7 +31,7 @@ export class DurableStep {
   action!: string;
 
   @Column({ type: "jsonb" })
-  payload!: Record<string, any>;
+  payload!: Record<string, unknown>;
 
   @Column({ type: "boolean", default: false })
   requiresApproval!: boolean;
@@ -50,7 +50,7 @@ export class DurableStep {
   status!: StepStatus;
 
   @Column({ type: "jsonb", nullable: true })
-  result!: any;
+  result!: unknown;
 
   @Column({ type: "text", nullable: true })
   error?: string;
