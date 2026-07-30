@@ -1,4 +1,110 @@
-import { describe, it, expect, beforeEach, afterEach, jest } from "@jest/globals";
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  jest,
+} from "@jest/globals";
+
+jest.mock("../../src/services/stellarPrice.service", () => ({
+  __esModule: true,
+  default: {
+    getPrice: jest.fn().mockResolvedValue({
+      price: 1,
+      estimatedOutput: 1,
+      cached: false,
+      path: [],
+    }),
+  },
+}));
+
+jest.mock("../../src/services/flashSwapRiskAnalyzer", () => ({
+  flashSwapRiskAnalyzer: {
+    analyzeSwapRisk: jest.fn().mockResolvedValue({
+      riskLevel: "low",
+      sandwichAttackRisk: 0,
+      warnings: [],
+      recommendations: [],
+    }),
+  },
+}));
+
+jest.mock("../../src/Auth/accountSecretStore", () => ({
+  accountSecretStore: {
+    getAccountByUserId: jest.fn(() => ({
+      secretKey: "SAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      publicKey: "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    })),
+  },
+}));
+
+jest.mock("../../src/transactions/TransactionLifecycle.service", () => ({
+  transactionLifecycleService: {
+    create: jest.fn().mockResolvedValue({ id: "lifecycle-1" }),
+    transition: jest.fn().mockResolvedValue({}),
+    fail: jest.fn().mockResolvedValue({}),
+  },
+}));
+
+jest.mock("../../src/services/lock", () => ({
+  RedisLockService: jest.fn().mockImplementation(() => ({
+    acquireLock: jest
+      .fn()
+      .mockResolvedValue({
+        acquired: true,
+        lockKey: "lock:test",
+        lockValue: "test",
+      }),
+    releaseLock: jest.fn().mockResolvedValue(true),
+    extendLock: jest.fn().mockResolvedValue(true),
+    isLocked: jest.fn().mockResolvedValue(false),
+    getLockInfo: jest.fn().mockResolvedValue(null),
+    forceReleaseLock: jest.fn().mockResolvedValue(true),
+  })),
+}));
+
+jest.mock("@stellar/stellar-sdk", () => ({
+  Asset: class {
+    constructor(
+      public code: string,
+      public issuer?: string
+    ) {}
+    static native() {
+      return new (this as unknown as {
+        new (code: string, issuer?: string): unknown;
+      })("XLM");
+    }
+  },
+  Horizon: { Server: class {} },
+  TransactionBuilder: class {
+    constructor() {}
+    addOperation() {
+      return this;
+    }
+    setTimeout() {
+      return this;
+    }
+    build() {
+      return { sign: jest.fn() };
+    }
+  },
+  Operation: { pathPaymentStrictSend: jest.fn(() => ({})) },
+  BASE_FEE: "100",
+  Networks: {
+    PUBLIC: "Public Global Stellar Network ; September 2015",
+    TESTNET: "Test SDF Network ; September 2015",
+  },
+}));
+
+jest.mock("../../src/services/networkConfig", () => ({
+  NetworkConfigService: class {
+    static getInstance() {
+      return new (this as unknown as { new (): unknown })();
+    }
+  },
+}));
+
 import { AgentPlanner } from "../../src/Agents/planner/AgentPlanner";
 import { PlanExecutor } from "../../src/Agents/planner/PlanExecutor";
 import { toolRegistry } from "../../src/Agents/registry/ToolRegistry";
@@ -321,16 +427,37 @@ describe("PlanExecutor", () => {
         userId: "test-user",
         totalSteps: 3,
         steps: [
-          { stepNumber: 1, action: "wallet_tool", description: "step 1", payload: {} },
-          { stepNumber: 2, action: "swap_tool", description: "step 2", payload: {} },
-          { stepNumber: 3, action: "soroban_invoke", description: "step 3", payload: {} },
+          {
+            stepNumber: 1,
+            action: "wallet_tool",
+            description: "step 1",
+            payload: {},
+          },
+          {
+            stepNumber: 2,
+            action: "swap_tool",
+            description: "step 2",
+            payload: {},
+          },
+          {
+            stepNumber: 3,
+            action: "soroban_invoke",
+            description: "step 3",
+            payload: {},
+          },
         ],
         riskLevel: "medium",
-      } as any;
+      } as Record<string, unknown>;
 
-      jest.spyOn(policyEnforcer, "enforce").mockResolvedValue({ allowed: true } as any);
+      jest
+        .spyOn(policyEnforcer, "enforce")
+        .mockResolvedValue({ allowed: true } as never);
       const executeToolSpy = jest.spyOn(toolRegistry, "executeTool");
-      executeToolSpy.mockResolvedValueOnce({ action: "wallet_tool", status: "success", message: "ok" } as any);
+      executeToolSpy.mockResolvedValueOnce({
+        action: "wallet_tool",
+        status: "success",
+        message: "ok",
+      } as never);
       executeToolSpy.mockRejectedValueOnce(new Error("boom"));
 
       const result = await executor.executePlan(plan, "test-user");
@@ -348,16 +475,37 @@ describe("PlanExecutor", () => {
         userId: "test-user",
         totalSteps: 3,
         steps: [
-          { stepNumber: 1, action: "wallet_tool", description: "step 1", payload: {} },
-          { stepNumber: 2, action: "swap_tool", description: "step 2", payload: {} },
-          { stepNumber: 3, action: "soroban_invoke", description: "step 3", payload: {} },
+          {
+            stepNumber: 1,
+            action: "wallet_tool",
+            description: "step 1",
+            payload: {},
+          },
+          {
+            stepNumber: 2,
+            action: "swap_tool",
+            description: "step 2",
+            payload: {},
+          },
+          {
+            stepNumber: 3,
+            action: "soroban_invoke",
+            description: "step 3",
+            payload: {},
+          },
         ],
         riskLevel: "medium",
-      } as any;
+      } as Record<string, unknown>;
 
-      jest.spyOn(policyEnforcer, "enforce").mockResolvedValue({ allowed: true } as any);
+      jest
+        .spyOn(policyEnforcer, "enforce")
+        .mockResolvedValue({ allowed: true } as never);
       const executeToolSpy = jest.spyOn(toolRegistry, "executeTool");
-      executeToolSpy.mockResolvedValueOnce({ action: "wallet_tool", status: "success", message: "ok" } as any);
+      executeToolSpy.mockResolvedValueOnce({
+        action: "wallet_tool",
+        status: "success",
+        message: "ok",
+      } as never);
       executeToolSpy.mockRejectedValueOnce(new Error("boom"));
 
       const result = await executor.executePlan(plan, "test-user");
@@ -374,17 +522,42 @@ describe("PlanExecutor", () => {
         userId: "test-user",
         totalSteps: 3,
         steps: [
-          { stepNumber: 1, action: "wallet_tool", description: "step 1", payload: {} },
-          { stepNumber: 2, action: "swap_tool", description: "step 2", payload: {} },
-          { stepNumber: 3, action: "soroban_invoke", description: "step 3", payload: {} },
+          {
+            stepNumber: 1,
+            action: "wallet_tool",
+            description: "step 1",
+            payload: {},
+          },
+          {
+            stepNumber: 2,
+            action: "swap_tool",
+            description: "step 2",
+            payload: {},
+          },
+          {
+            stepNumber: 3,
+            action: "soroban_invoke",
+            description: "step 3",
+            payload: {},
+          },
         ],
         riskLevel: "medium",
-      } as any;
+      } as Record<string, unknown>;
 
-      jest.spyOn(policyEnforcer, "enforce").mockResolvedValue({ allowed: true } as any);
+      jest
+        .spyOn(policyEnforcer, "enforce")
+        .mockResolvedValue({ allowed: true } as never);
       const executeToolSpy = jest.spyOn(toolRegistry, "executeTool");
-      executeToolSpy.mockResolvedValueOnce({ action: "wallet_tool", status: "success", message: "ok" } as any);
-      executeToolSpy.mockResolvedValueOnce({ action: "swap_tool", status: "success", message: "ok" } as any);
+      executeToolSpy.mockResolvedValueOnce({
+        action: "wallet_tool",
+        status: "success",
+        message: "ok",
+      } as never);
+      executeToolSpy.mockResolvedValueOnce({
+        action: "swap_tool",
+        status: "success",
+        message: "ok",
+      } as never);
       executeToolSpy.mockRejectedValueOnce(new Error("boom"));
 
       const result = await executor.executePlan(plan, "test-user");

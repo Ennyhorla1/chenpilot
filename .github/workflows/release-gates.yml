@@ -5,6 +5,11 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["**"]
+    paths:
+      - "src/Gateway/**"
+      - "src/scripts/testWebhookIdempotency.ts"
+      - "src/config/Datasource.ts"
+      - ".github/workflows/release-gates.yml"
 
 jobs:
   backend-health:
