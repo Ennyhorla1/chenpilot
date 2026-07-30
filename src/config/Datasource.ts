@@ -18,6 +18,11 @@ import { AuditLog } from "../AuditLog/auditLog.entity";
 import { DeployedContract } from "../ContractRegistry/contractRegistry.entity";
 import { BotSession } from "../Bot/botSession.entity";
 import { IndexerCursor } from "../services/stellarIndexer/indexerCursor.entity";
+import {
+  AdminWorkflowPolicy,
+  AdminWorkflowInstance,
+  AdminWorkflowApproval,
+} from "../Agents/admin/workflow.entity";
 
 const isDev = config.env === "development";
 
@@ -46,10 +51,11 @@ const dbOptions: DataSourceOptions = {
     DeployedContract,
     BotSession,
     IndexerCursor,
+    AdminWorkflowPolicy,
+    AdminWorkflowInstance,
+    AdminWorkflowApproval,
   ],
-  migrations: [
-    isDev ? "src/migrations/**/*.ts" : "dist/migrations/**/*.js",
-  ],
+  migrations: [isDev ? "src/migrations/**/*.ts" : "dist/migrations/**/*.js"],
   subscribers: [],
 };
 

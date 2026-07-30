@@ -6,6 +6,8 @@ import { promptRolloutService } from "../registry/PromptRolloutService";
 import { toolRegistry } from "../registry/ToolRegistry";
 import { auditLogService } from "../../AuditLog/auditLog.service";
 import { AdminAction, AuditSeverity } from "../../AuditLog/auditLog.entity";
+import { requireAdminWorkflow } from "./workflow.middleware";
+import { SensitiveActionType } from "./workflow.types";
 import AppDataSource from "../../config/Datasource";
 import { PromptVersion } from "../registry/PromptVersion.entity";
 
@@ -18,21 +20,39 @@ router.get("/prompts", authenticateToken, requireAdmin, async (_req, res) => {
   res.json({ success: true, data: prompts });
 });
 
-router.get("/prompts/:id/metrics", authenticateToken, requireAdmin, async (req, res) => {
-  const metrics = await promptVersionService.getMetrics(req.params.id);
-  res.json({ success: true, data: metrics });
-});
+router.get(
+  "/prompts/:id/metrics",
+  authenticateToken,
+  requireAdmin,
+  async (req, res) => {
+    const metrics = await promptVersionService.getMetrics(req.params.id);
+    res.json({ success: true, data: metrics });
+  }
+);
 
-router.post("/prompts/:id/activate", authenticateToken, requireAdmin, async (req: Request, res: Response) => {
-  await promptRolloutService.activateWithPolicy(req.params.id, req.body.rollbackVersionId);
-  await auditLogService.log({
-    action: AdminAction.SETTINGS_CHANGED,
-    severity: AuditSeverity.INFO,
-    success: true,
-    metadata: { domain: "prompt", promptId: req.params.id, rollbackVersionId: req.body.rollbackVersionId },
-  });
-  res.json({ success: true });
-});
+router.post(
+  "/prompts/:id/activate",
+  authenticateToken,
+  requireAdmin,
+  requireAdminWorkflow(SensitiveActionType.ACTIVATE_PROMPT),
+  async (req: Request, res: Response) => {
+    await promptRolloutService.activateWithPolicy(
+      req.params.id,
+      req.body.rollbackVersionId
+    );
+    await auditLogService.log({
+      action: AdminAction.SETTINGS_CHANGED,
+      severity: AuditSeverity.INFO,
+      success: true,
+      metadata: {
+        domain: "prompt",
+        promptId: req.params.id,
+        rollbackVersionId: req.body.rollbackVersionId,
+      },
+    });
+    res.json({ success: true });
+  }
+);
 
 router.get("/tools", authenticateToken, requireAdmin, async (_req, res) => {
   const tools = toolRegistry.getToolMetadata().map((tool) => ({
@@ -46,26 +66,49 @@ router.get("/tools", authenticateToken, requireAdmin, async (_req, res) => {
   res.json({ success: true, data: tools });
 });
 
-router.put("/tools/:toolName/enable", authenticateToken, requireAdmin, async (req, res) => {
-  const tool = toolRegistry.getTool(req.params.toolName);
-  if (!tool) {
-    return res.status(404).json({ success: false, message: "Tool not found" });
-  }
-  if (req.body.enabled !== false) {
-    await auditLogService.log({
-      action: AdminAction.SETTINGS_CHANGED,
-      severity: AuditSeverity.INFO,
+router.put(
+  "/tools/:toolName/enable",
+  authenticateToken,
+  requireAdmin,
+  requireAdminWorkflow(SensitiveActionType.ENABLE_TOOL),
+  async (req, res) => {
+    const tool = toolRegistry.getTool(req.params.toolName);
+    if (!tool) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Tool not found" });
+    }
+    if (req.body.enabled !== false) {
+      await auditLogService.log({
+        action: AdminAction.SETTINGS_CHANGED,
+        severity: AuditSeverity.INFO,
+        success: true,
+        metadata: {
+          domain: "tool",
+          toolName: req.params.toolName,
+          enabled: true,
+        },
+      });
+    }
+    res.json({
       success: true,
-      metadata: { domain: "tool", toolName: req.params.toolName, enabled: true },
+      data: {
+        toolName: req.params.toolName,
+        enabled: req.body.enabled !== false,
+      },
     });
   }
-  res.json({ success: true, data: { toolName: req.params.toolName, enabled: req.body.enabled !== false } });
-});
+);
 
-router.get("/audit/review", authenticateToken, requireAdmin, async (_req, res) => {
-  const securityEvents = await auditLogService.getSecurityEvents(24, 100);
-  const integrity = await auditLogService.verifyChainIntegrity(1000);
-  res.json({ success: true, data: { securityEvents, integrity } });
-});
+router.get(
+  "/audit/review",
+  authenticateToken,
+  requireAdmin,
+  async (_req, res) => {
+    const securityEvents = await auditLogService.getSecurityEvents(24, 100);
+    const integrity = await auditLogService.verifyChainIntegrity(1000);
+    res.json({ success: true, data: { securityEvents, integrity } });
+  }
+);
 
 export default router;
