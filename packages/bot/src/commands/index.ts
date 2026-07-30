@@ -36,6 +36,7 @@ import { portfolioHandler, reportHandler } from "./handlers/portfolio";
 import { alertHandler, alertsHandler } from "./handlers/alert";
 import { discoverHandler, advancedHandler } from "./handlers/discover";
 import { feedbackHandler } from "./handlers/feedback";
+import { linkHandler, unlinkHandler, linkedHandler } from "./handlers/linkHandler";
 
 /**
  * Register all cross-platform command handlers into the shared registry.
@@ -60,5 +61,8 @@ export function registerAllCommands(): void {
     discoverHandler,
     advancedHandler,
     feedbackHandler,
+    linkHandler,
+    unlinkHandler,
+    linkedHandler,
   );
 }
