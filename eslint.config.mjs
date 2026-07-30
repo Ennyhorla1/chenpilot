@@ -2,6 +2,7 @@
 import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import jsdoc from "eslint-plugin-jsdoc";
 export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -14,6 +15,17 @@ export default [
       "@typescript-eslint/no-namespace": "off",
       "@typescript-eslint/no-empty-object-type": "off",
     },
+  },
+  {
+    files: ["src/Agents/tools/*.ts"],
+    plugins: {
+      jsdoc
+    },
+    rules: {
+      "jsdoc/require-jsdoc": ["error", {
+        require: { ClassDeclaration: true, MethodDefinition: true, FunctionDeclaration: true, ArrowFunctionExpression: false, FunctionExpression: false }
+      }]
+    }
   },
   {
     ignores: ["node_modules/**", "dist/**", "build/**"],

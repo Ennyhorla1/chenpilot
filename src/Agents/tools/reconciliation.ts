@@ -19,6 +19,9 @@ interface ReconciliationPayload extends Record<string, unknown> {
   limit?: number;
 }
 
+/**
+ *
+ */
 export class ReconciliationTool extends BaseTool<ReconciliationPayload> {
   metadata: ToolMetadata = {
     name: "reconciliation_tool",
@@ -55,6 +58,9 @@ export class ReconciliationTool extends BaseTool<ReconciliationPayload> {
     version: "1.0.0",
   };
 
+  /**
+   *
+   */
   async execute(
     payload: ReconciliationPayload,
     userId: string
@@ -72,6 +78,9 @@ export class ReconciliationTool extends BaseTool<ReconciliationPayload> {
     }
   }
 
+  /**
+   *
+   */
   private async runReconciliation(
     payload: ReconciliationPayload,
     userId: string
@@ -118,6 +127,9 @@ export class ReconciliationTool extends BaseTool<ReconciliationPayload> {
     }
   }
 
+  /**
+   *
+   */
   private async getReports(
     payload: ReconciliationPayload,
     userId: string

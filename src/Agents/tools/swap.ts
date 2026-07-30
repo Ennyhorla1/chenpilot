@@ -35,6 +35,9 @@ const STELLAR_ASSETS: Record<string, StellarSdk.Asset> = {
   ),
 };
 
+/**
+ *
+ */
 export class SwapTool extends BaseTool<SwapPayload> {
   metadata: ToolMetadata = {
     name: "swap_tool",
@@ -74,12 +77,18 @@ export class SwapTool extends BaseTool<SwapPayload> {
   private server: StellarSdk.Horizon.Server;
   private lockService: RedisLockService;
 
+  /**
+   *
+   */
   constructor() {
     super();
     this.server = new StellarSdk.Horizon.Server(config.stellar.horizonUrl);
     this.lockService = new RedisLockService();
   }
 
+  /**
+   *
+   */
   private getStellarAccount(userId: string): StellarSdk.Keypair {
     const accountData =
       accountSecretStore.getAccountByUserId<StellarAccountData>(userId);
@@ -91,6 +100,9 @@ export class SwapTool extends BaseTool<SwapPayload> {
     return StellarSdk.Keypair.fromSecret(accountData.secretKey);
   }
 
+  /**
+   *
+   */
   async execute(payload: SwapPayload, userId: string): Promise<ToolResult> {
     // Create lifecycle record at intent state
     const lifecycle = await transactionLifecycleService.create(
@@ -164,6 +176,9 @@ export class SwapTool extends BaseTool<SwapPayload> {
     }
   }
 
+  /**
+   *
+   */
   private async executeWithLock(
     payload: SwapPayload,
     userId: string,

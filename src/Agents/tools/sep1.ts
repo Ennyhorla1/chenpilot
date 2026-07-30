@@ -66,6 +66,9 @@ interface AssetMetadataPayload extends Record<string, unknown> {
   domain?: string;
 }
 
+/**
+ *
+ */
 export class Sep1Tool extends BaseTool<AssetMetadataPayload> {
   private fetch: typeof globalThis.fetch;
 
@@ -102,6 +105,9 @@ export class Sep1Tool extends BaseTool<AssetMetadataPayload> {
     version: "1.0.0",
   };
 
+  /**
+   *
+   */
   constructor() {
     super();
     this.fetch = globalThis.fetch.bind(globalThis);
@@ -112,6 +118,9 @@ export class Sep1Tool extends BaseTool<AssetMetadataPayload> {
   private readonly assetPattern =
     /^[A-Z0-9]{1,12}:[GABCDEF0-9]{10,56}$/i;
 
+  /**
+   *
+   */
   async execute(payload: AssetMetadataPayload): Promise<ToolResult> {
     try {
       switch (payload.operation) {
@@ -518,6 +527,9 @@ export class Sep1Tool extends BaseTool<AssetMetadataPayload> {
     return result;
   }
 
+  /**
+   *
+   */
   private isValidDomain(domain: string): boolean {
     return this.domainPattern.test(domain) && !domain.includes("..");
   }

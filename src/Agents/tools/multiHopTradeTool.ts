@@ -41,6 +41,9 @@ const STELLAR_ASSETS: Record<string, StellarSdk.Asset> = {
   ),
 };
 
+/**
+ *
+ */
 export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
   metadata: ToolMetadata = {
     name: "multi_hop_trade",
@@ -83,6 +86,7 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
         type: "boolean",
         description:
           "Whether to execute the optimal path (default: false, only evaluate)",
+      },
       policy: {
         type: "object",
         description:
@@ -100,6 +104,9 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
 
   private horizonServer: StellarSdk.Horizon.Server;
 
+  /**
+   *
+   */
   constructor() {
     super();
     this.horizonServer = new StellarSdk.Horizon.Server(
@@ -107,6 +114,9 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     );
   }
 
+  /**
+   *
+   */
   async execute(
     payload: MultiHopTradePayload,
     userId: string
@@ -162,6 +172,9 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     }
   }
 
+  /**
+   *
+   */
   private async evaluateRoute(
     sourceAsset: StellarSdk.Asset,
     destAsset: StellarSdk.Asset,
@@ -196,6 +209,9 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     }
   }
 
+  /**
+   *
+   */
   private async executeRoute(
     sourceAsset: StellarSdk.Asset,
     destAsset: StellarSdk.Asset,
@@ -269,12 +285,9 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     }
   }
 
-      return {
-        action: "multi_hop_trade",
-        status: "error",
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
-      };
+  /**
+   *
+   */
   private handlePathError(err: unknown, action: string): ToolResult {
     if (err instanceof RoutePolicyViolationError) {
       logger.warn("Route policy violation", { reason: err.message });
@@ -290,6 +303,9 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     );
   }
 
+  /**
+   *
+   */
   private serializePath(path: TradePath): Record<string, unknown> {
     return {
       route: path.route,
@@ -302,6 +318,9 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     };
   }
 
+  /**
+   *
+   */
   private getKeypair(userId: string): StellarSdk.Keypair {
     const accounts = accountsData as StellarAccountData[];
     const account = accounts.find((a) => a.userId === userId);

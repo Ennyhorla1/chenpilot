@@ -19,6 +19,9 @@ interface HorizonPoolRecord {
 const POOL_ID_REGEX = /^[0-9a-f]{64}$/i;
 const FEE_PERCENTAGE = 0.003; // 0.30% standard Stellar AMM fee
 
+/**
+ *
+ */
 export class LiquidityPoolStatsTool extends BaseTool<LiquidityPoolStatsPayload> {
   metadata: ToolMetadata = {
     name: "get_liquidity_pool_stats",
@@ -44,6 +47,9 @@ export class LiquidityPoolStatsTool extends BaseTool<LiquidityPoolStatsPayload> 
     permissions: [],
   };
 
+  /**
+   *
+   */
   validate(payload: LiquidityPoolStatsPayload): {
     valid: boolean;
     errors: string[];
@@ -62,6 +68,9 @@ export class LiquidityPoolStatsTool extends BaseTool<LiquidityPoolStatsPayload> 
     return { valid: errors.length === 0, errors };
   }
 
+  /**
+   *
+   */
   async execute(payload: LiquidityPoolStatsPayload): Promise<ToolResult> {
     const validation = this.validate(payload);
     if (!validation.valid) {

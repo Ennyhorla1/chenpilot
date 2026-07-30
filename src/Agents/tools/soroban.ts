@@ -21,6 +21,9 @@ interface SorobanInvokePayload extends Record<string, unknown> {
   timeoutMs?: number;
 }
 
+/**
+ *
+ */
 export class SorobanTool extends BaseTool<SorobanInvokePayload> {
   metadata: ToolMetadata = {
     name: "soroban_invoke",
@@ -82,6 +85,9 @@ export class SorobanTool extends BaseTool<SorobanInvokePayload> {
     permissions: ["user"],
   };
 
+  /**
+   *
+   */
   async execute(payload: SorobanInvokePayload, userId: string): Promise<ToolResult> {
     const lifecycle = await transactionLifecycleService.create(
       userId,

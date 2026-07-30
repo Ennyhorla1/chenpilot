@@ -47,6 +47,9 @@ interface LiquidityError {
 // ==============================
 //
 
+/**
+ *
+ */
 function validateInput(input: StellarLiquidityInput) {
   if (!input.assetCode || input.assetCode.length > 12) {
     throw new Error("Invalid assetCode");
@@ -63,6 +66,9 @@ function validateInput(input: StellarLiquidityInput) {
 // ==============================
 //
 
+/**
+ *
+ */
 async function fetchOrderBook(
   input: StellarLiquidityInput
 ): Promise<HorizonOrderBookResponse> {
@@ -87,6 +93,9 @@ async function fetchOrderBook(
 // ==============================
 //
 
+/**
+ *
+ */
 function computeLiquidityMetrics(
   data: HorizonOrderBookResponse,
   input: StellarLiquidityInput

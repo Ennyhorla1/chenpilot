@@ -15,6 +15,9 @@ interface DeletePayload {
   id: string;
 }
 
+/**
+ *
+ */
 export class ContactTool extends BaseTool {
   metadata: ToolMetadata = {
     name: "contact_tool",
@@ -46,6 +49,9 @@ export class ContactTool extends BaseTool {
 
   private contactService = container.resolve(ContactService);
 
+  /**
+   *
+   */
   async execute(
     payload: Record<string, unknown>,
     userId: string
@@ -72,6 +78,9 @@ export class ContactTool extends BaseTool {
     }
   }
 
+  /**
+   *
+   */
   private async createContact(
     data: CreatePayload,
     userId: string
@@ -92,11 +101,17 @@ export class ContactTool extends BaseTool {
     return this.createSuccessResult("contact_created", { created });
   }
 
+  /**
+   *
+   */
   private async listContacts(userId: string): Promise<ToolResult> {
     const contacts = await this.contactService.getAllContacts();
     return this.createSuccessResult("contacts_list", { contacts });
   }
 
+  /**
+   *
+   */
   private async deleteContact(
     data: DeletePayload,
     userId: string

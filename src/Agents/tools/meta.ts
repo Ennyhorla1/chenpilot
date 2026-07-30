@@ -1,6 +1,9 @@
 import { BaseTool } from "./base/BaseTool";
 import { ToolMetadata, ToolResult } from "../registry/ToolMetadata";
 
+/**
+ *
+ */
 export class MetaTool extends BaseTool {
   metadata: ToolMetadata = {
     name: "meta_tool",
@@ -26,6 +29,9 @@ export class MetaTool extends BaseTool {
     permissions: [],
   };
 
+  /**
+   *
+   */
   async execute(
     payload: Record<string, unknown>,
     _userId: string
