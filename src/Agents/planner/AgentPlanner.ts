@@ -184,6 +184,8 @@ Output JSON format:
     const highRiskActions = ["swap", "transfer", "withdraw", "approve"];
     if (highRiskActions.includes(step.action.toLowerCase())) {
       // Check for large amounts if available
+      const rawAmount = step.payload.amount;
+      if (typeof rawAmount === "string" && parseFloat(rawAmount) > 1000) return true;
       const amount = (step.payload as Record<string, unknown>)?.amount;
       if (amount && parseFloat(amount) > 1000) return true;
       return true; // Default high risk for these actions for now

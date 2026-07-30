@@ -6,8 +6,10 @@ Chen Pilot is a sophisticated AI-driven gateway that enables seamless interactio
 
 ## Prerequisites
 
-- Node.js 18+
-- PostgreSQL database
+- **Node.js 18+** — required by TypeScript 5.7+, ESLint 9.x
+- **PostgreSQL 14+** — required by TypeORM 0.3.x with pg 8.x
+- **Redis 6+** — required for the distributed trade-locking system (`src/services/lock`); **not optional**
+- **pnpm 8+** — required for monorepo workspace management
 - Environment variables configured (see Configuration section)
 
 ---

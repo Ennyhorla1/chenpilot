@@ -146,7 +146,7 @@ export class DelayedTransactionService {
     userId: string,
     transactionXdr: string,
     config: DelayedTransactionConfig
-  ): Promise<any> {
+  ): Promise<unknown> {
     this.validateConfig(config);
 
     try {
@@ -199,7 +199,7 @@ export class DelayedTransactionService {
     });
   }
 
-  private async executeTransaction(xdr: string): Promise<any> {
+  private async executeTransaction(xdr: string): Promise<{ hash: string; ledger: number; envelopeXdr: string }> {
     const tx = StellarSdk.Transaction.fromXDR(xdr, StellarSdk.Networks.TESTNET);
     const result = await this.server.submitTransaction(tx);
     return {

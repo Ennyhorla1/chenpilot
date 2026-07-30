@@ -53,7 +53,7 @@ type EventHandler<T = unknown> = (envelope: VerifiedEventEnvelope<T>) => Promise
  */
 
 export class SignedEventIngestionService {
-  private readonly handlers = new Map<string, EventHandler<any>>();
+  private readonly handlers = new Map<string, EventHandler>();
   private readonly providerConfigs = new Map<string, ProviderSignatureConfig>();
 
   // Default provider configs - extend as new integrations are added

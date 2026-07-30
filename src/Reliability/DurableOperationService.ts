@@ -3,7 +3,7 @@ import { DurableOperation, OperationStatus } from "./DurableOperation.entity";
 import logger from "../config/logger";
 import { Repository, LessThanOrEqual, IsNull, Or } from "typeorm";
 
-export type OperationHandler = (payload: any) => Promise<any>;
+export type OperationHandler<T = unknown> = (payload: unknown) => Promise<T>;
 
 export class DurableOperationService {
   private repository: Repository<DurableOperation>;
@@ -17,7 +17,7 @@ export class DurableOperationService {
   /**
    * Register a handler for a specific category of operations
    */
-  registerHandler(category: string, handler: OperationHandler): void {
+  registerHandler(category: string, handler: OperationHandler<unknown>): void {
     this.handlers.set(category, handler);
     logger.info(`Registered handler for durable operation category: ${category}`);
   }
@@ -25,13 +25,13 @@ export class DurableOperationService {
   /**
    * Execute an operation with idempotency
    */
-  async execute<T = any>(options: {
+  async execute<T = unknown>(options: {
     category: string;
     idempotentKey?: string;
-    payload: any;
+    payload: unknown;
     maxRetries?: number;
     scheduledAt?: Date;
-    conditions?: Record<string, any>;
+    conditions?: Record<string, unknown>;
   }): Promise<T | null> {
     const { category, idempotentKey, payload, maxRetries, scheduledAt, conditions } = options;
 
@@ -164,7 +164,7 @@ export class DurableOperationService {
     }
   }
 
-  private async evaluateConditions(conditions: Record<string, any>): Promise<boolean> {
+  private async evaluateConditions(conditions: Record<string, unknown>): Promise<boolean> {
     // This can be expanded to check network fees, congestion, etc.
     if (conditions.strategy === "fee_based") {
       // Placeholder for actual fee check
