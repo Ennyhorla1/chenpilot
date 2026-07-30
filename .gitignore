@@ -12,3 +12,5 @@ issue.md
 COMMIT.md
 contracts/target
 target
+*.log
+compile_error.log
