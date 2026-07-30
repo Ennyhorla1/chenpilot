@@ -128,14 +128,14 @@ router.post("/", requireAdminAuth(), async (req: Request, res: Response) => {
       reason,
       description,
       expiresAt: expiresAt ? new Date(expiresAt) : undefined,
-      addedBy: (req as any).user?.id,
+      addedBy: req.user?.id,
       metadata,
     });
 
     logger.info("IP added to blacklist via API", {
       ipAddress,
       reason,
-      addedBy: (req as any).user?.id,
+      addedBy: req.user?.id,
     });
 
     res.status(201).json({
@@ -191,7 +191,7 @@ router.post(
           options: {
             reason,
             description,
-            addedBy: (req as any).user?.id,
+            addedBy: req.user?.id,
           },
         }))
       );
@@ -199,7 +199,7 @@ router.post(
       logger.info("Bulk IPs added to blacklist via API", {
         count: entries.length,
         reason,
-        addedBy: (req as any).user?.id,
+        addedBy: req.user?.id,
       });
 
       res.status(201).json({
@@ -241,7 +241,7 @@ router.delete(
 
       logger.info("IP removed from blacklist via API", {
         ip,
-        removedBy: (req as any).user?.id,
+        removedBy: req.user?.id,
       });
 
       res.json({
@@ -272,7 +272,7 @@ router.post(
 
       logger.info("Cleaned up expired blacklist entries", {
         count,
-        cleanedBy: (req as any).user?.id,
+        cleanedBy: req.user?.id,
       });
 
       res.json({

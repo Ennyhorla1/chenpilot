@@ -60,7 +60,7 @@ export interface AgentExecutionUpdate {
   status: string;
   currentStep?: number;
   totalSteps?: number;
-  result?: any;
+  result?: unknown;
   error?: string;
   timestamp: Date;
 }
@@ -207,7 +207,7 @@ export class SocketManager {
       pingInterval: 25000,
       pingTimeout: 60000,
       maxHttpBufferSize: 1e6, // 1 MB max message size
-    } as any);
+    });
 
     this.connectedClients = new Map();
     this.userSockets = new Map();

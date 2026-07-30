@@ -25,7 +25,7 @@ export class DurableExecutor {
   async startExecution(
     plan: ExecutionPlan,
     userId: string,
-    context: Record<string, any> = {}
+    context: Record<string, unknown> = {}
   ): Promise<DurableExecution> {
     const execution = new DurableExecution();
     execution.planId = plan.planId;
@@ -176,7 +176,7 @@ export class DurableExecutor {
     }
   }
 
-  private emitUpdate(type: RealtimeEventType, execution: DurableExecution, result?: any) {
+  private emitUpdate(type: RealtimeEventType, execution: DurableExecution, result?: unknown) {
     try {
       const socketManager = getSocketManager();
       socketManager.getEventEmitter().emitAgentExecutionUpdate(type, {
@@ -263,7 +263,7 @@ export class DurableExecutor {
   /**
    * Operator repair: Skip a failed step
    */
-  async repairSkipStep(executionId: string, stepNumber: number, resultOverride?: any): Promise<void> {
+  async repairSkipStep(executionId: string, stepNumber: number, resultOverride?: unknown): Promise<void> {
     const step = await this.stepRepo.findOne({
       where: { execution: { id: executionId }, stepNumber },
       relations: ["execution"]
@@ -282,7 +282,7 @@ export class DurableExecutor {
   /**
    * Operator repair: Update step payload and retry
    */
-  async repairUpdateAndRetry(executionId: string, stepNumber: number, newPayload: any): Promise<void> {
+  async repairUpdateAndRetry(executionId: string, stepNumber: number, newPayload: unknown): Promise<void> {
     const step = await this.stepRepo.findOne({
       where: { execution: { id: executionId }, stepNumber },
       relations: ["execution"]

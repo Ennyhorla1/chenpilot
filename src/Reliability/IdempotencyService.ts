@@ -2,7 +2,7 @@ import { AppDataSource } from "../config/Datasource";
 import { DurableOperation, OperationStatus } from "./DurableOperation.entity";
 import { WebhookIdempotency } from "../Gateway/webhookIdempotency.entity";
 import logger from "../config/logger";
-import { Repository } from "typeorm";
+import { Repository, MoreThanOrEqual, LessThanOrEqual, IsNull } from "typeorm";
 import crypto from "crypto";
 
 /**
@@ -21,15 +21,15 @@ import crypto from "crypto";
  *   - Recovery on restart:    recoverInterruptedExecutions(handlerRegistry)
  */
 
-export type IdempotentHandler = (payload: any) => Promise<any>;
+export type IdempotentHandler<T = unknown> = (payload: unknown) => Promise<T>;
 
 interface ExecuteOptions {
   category: string;
   idempotentKey: string;
-  payload: any;
+  payload: unknown;
   maxRetries?: number;
   scheduledAt?: Date;
-  conditions?: Record<string, any>;
+  conditions?: Record<string, unknown>;
   metadata?: Record<string, unknown>;
 }
 
@@ -38,7 +38,7 @@ interface IngestOptions {
   eventId: string;
   signature?: string;
   timestamp?: string;
-  payload: any;
+  payload: unknown;
   deduplicationWindowMs?: number;
   metadata?: Record<string, unknown>;
 }
@@ -46,7 +46,7 @@ interface IngestOptions {
 export class IdempotencyService {
   private readonly operationsRepo: Repository<DurableOperation>;
   private readonly webhookRepo: Repository<WebhookIdempotency>;
-  private readonly handlers = new Map<string, IdempotentHandler>();
+  private readonly handlers = new Map<string, IdempotentHandler<unknown>>();
   private isProcessing = false;
   private readonly DEFAULT_DEDUP_WINDOW_MS = 24 * 60 * 60 * 1000; // 24h
 
@@ -57,7 +57,7 @@ export class IdempotencyService {
 
   // ── Handler Registry ─────────────────────────────────────────────────────────
 
-  registerHandler(category: string, handler: IdempotentHandler): void {
+  registerHandler(category: string, handler: IdempotentHandler<unknown>): void {
     this.handlers.set(category, handler);
     logger.info(`IdempotencyService: registered handler for category=${category}`);
   }
@@ -70,8 +70,8 @@ export class IdempotencyService {
       where: {
         webhookId: eventId,
         platform: source,
-        createdAt: since as any,
-      } as any,
+        createdAt: MoreThanOrEqual(since),
+      },
     });
 
     return !!existing;
@@ -101,11 +101,11 @@ export class IdempotencyService {
       where: {
         webhookId: options.eventId,
         platform: options.source,
-      } as any,
+      },
     });
 
     if (existing) {
-      const existingHash = (existing.metadata as Record<string, any> | undefined)?.payloadHash;
+      const existingHash = (existing.metadata as Record<string, unknown> | undefined)?.payloadHash;
       if (existingHash === payloadHash) {
         return { isNew: false, eventId: options.eventId };
       }
@@ -191,9 +191,9 @@ export class IdempotencyService {
   async recoverInterruptedExecutions(): Promise<void> {
     const pending = await this.operationsRepo.find({
       where: [
-        { status: OperationStatus.PENDING, scheduledAt: { $lte: new Date() } as any } as any,
-        { status: OperationStatus.PENDING, nextRetryAt: { $lte: new Date() } as any } as any,
-        { status: OperationStatus.PENDING, scheduledAt: null as any, nextRetryAt: null as any } as any,
+        { status: OperationStatus.PENDING, scheduledAt: LessThanOrEqual(new Date()) },
+        { status: OperationStatus.PENDING, nextRetryAt: LessThanOrEqual(new Date()) },
+        { status: OperationStatus.PENDING, scheduledAt: IsNull(), nextRetryAt: IsNull() },
       ],
       take: 100,
     });
@@ -263,9 +263,9 @@ export class IdempotencyService {
     const now = new Date();
     const pending = await this.operationsRepo.find({
       where: [
-        { status: OperationStatus.PENDING, scheduledAt: { $lte: now } as any } as any,
-        { status: OperationStatus.PENDING, nextRetryAt: { $lte: now } as any } as any,
-        { status: OperationStatus.PENDING, scheduledAt: null as any, nextRetryAt: null as any } as any,
+        { status: OperationStatus.PENDING, scheduledAt: LessThanOrEqual(now) },
+        { status: OperationStatus.PENDING, nextRetryAt: LessThanOrEqual(now) },
+        { status: OperationStatus.PENDING, scheduledAt: IsNull(), nextRetryAt: IsNull() },
       ],
       take: 20,
     });
@@ -281,7 +281,7 @@ export class IdempotencyService {
     }
   }
 
-  private async evaluateConditions(conditions: Record<string, any>): Promise<boolean> {
+  private async evaluateConditions(conditions: Record<string, unknown>): Promise<boolean> {
     if (conditions.strategy === "fee_based" || conditions.strategy === "congestion_based") {
       return true;
     }

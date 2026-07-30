@@ -91,7 +91,7 @@ export class YieldBloxAdapter extends DeFiAdapter implements LendingCapability, 
       );
 
       const positions: PositionResult[] = (response.positions || []).map(
-        (pos: any) => ({
+        (pos: { token: string; supplied: string; valueUSD?: number; supplyAPY?: number }) => ({
           token: pos.token,
           amount: pos.supplied,
           valueUSD: pos.valueUSD || 0,
@@ -140,7 +140,7 @@ export class YieldBloxAdapter extends DeFiAdapter implements LendingCapability, 
       );
 
       const positions: PositionResult[] = (response.positions || []).map(
-        (pos: any) => ({
+        (pos: { token: string; borrowed: string; valueUSD?: number; borrowAPY?: number }) => ({
           token: pos.token,
           amount: pos.borrowed,
           valueUSD: pos.valueUSD || 0,
