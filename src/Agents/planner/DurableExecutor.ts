@@ -2,9 +2,8 @@ import { AppDataSource } from "../../config/Datasource";
 import { DurableExecution, ExecutionStatus } from "./DurableExecution.entity";
 import { DurableStep, StepStatus } from "./DurableStep.entity";
 import { toolRegistry } from "../registry/ToolRegistry";
-import { ExecutionPlan, PlanStep } from "./AgentPlanner";
+import { ExecutionPlan } from "./AgentPlanner";
 import logger from "../../config/logger";
-import { ToolResult } from "../registry/ToolMetadata";
 import { getSocketManager, RealtimeEventType } from "../../Gateway/socketManager";
 
 export interface DurableExecutionResult {
@@ -25,7 +24,7 @@ export class DurableExecutor {
   async startExecution(
     plan: ExecutionPlan,
     userId: string,
-    context: Record<string, any> = {}
+    context: Record<string, unknown> = {}
   ): Promise<DurableExecution> {
     const execution = new DurableExecution();
     execution.planId = plan.planId;
@@ -176,7 +175,7 @@ export class DurableExecutor {
     }
   }
 
-  private emitUpdate(type: RealtimeEventType, execution: DurableExecution, result?: any) {
+  private emitUpdate(type: RealtimeEventType, execution: DurableExecution, result?: unknown) {
     try {
       const socketManager = getSocketManager();
       socketManager.getEventEmitter().emitAgentExecutionUpdate(type, {
@@ -263,7 +262,7 @@ export class DurableExecutor {
   /**
    * Operator repair: Skip a failed step
    */
-  async repairSkipStep(executionId: string, stepNumber: number, resultOverride?: any): Promise<void> {
+  async repairSkipStep(executionId: string, stepNumber: number, resultOverride?: unknown): Promise<void> {
     const step = await this.stepRepo.findOne({
       where: { execution: { id: executionId }, stepNumber },
       relations: ["execution"]
@@ -282,7 +281,7 @@ export class DurableExecutor {
   /**
    * Operator repair: Update step payload and retry
    */
-  async repairUpdateAndRetry(executionId: string, stepNumber: number, newPayload: any): Promise<void> {
+  async repairUpdateAndRetry(executionId: string, stepNumber: number, newPayload: unknown): Promise<void> {
     const step = await this.stepRepo.findOne({
       where: { execution: { id: executionId }, stepNumber },
       relations: ["execution"]

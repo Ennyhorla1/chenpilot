@@ -54,7 +54,7 @@ export class DurableExecution {
   currentStepNumber!: number;
 
   @Column({ type: "jsonb", nullable: true })
-  context!: Record<string, any>;
+  context!: Record<string, unknown>;
 
   @OneToMany(() => DurableStep, (step) => step.execution, { cascade: true })
   steps!: DurableStep[];

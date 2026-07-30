@@ -67,5 +67,5 @@ export interface ToolRegistryEntry {
   enabled: boolean;
   registeredAt: Date;
   lastUsed?: Date;
-  governanceMetadata?: Record<string, any>;
+  governanceMetadata?: Record<string, unknown>;
 }
