@@ -27,6 +27,10 @@ export * from "./xdrDecoder";
 export * from "./assetCache";
 export * from "./networkStatus";
 export * from "./contractClient";
+export * from "./advancedOps";
+export * from "./signerSession";
+export * from "./offlineSigning";
+export * from "./performance";
 export {
   AssetIntelligence,
   AssetCache as AssetIntelligenceCache,
