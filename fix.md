@@ -1,14 +1,13 @@
-Add JSDoc/TSDoc coverage requirement for src/Agents/tools/*.ts
+Redact KYC PII fields in structured logs
 Repo Avatar
 gear5labs/chenpilot
-package.json shows src/Agents/tools/*.ts triggers npm run gen:docs (scripts/generateToolDocs.mjs) on commit via lint-staged, implying tool docs are auto-generated from source comments. If tools lack proper JSDoc annotations, the generated docs (docs/TOOLS.md) will be incomplete or empty for those entries.
+The README states the logging system automatically redacts "Passwords, tokens, and private keys." It doesn't mention PII fields that would be present in KYC flows (full name, date of birth, document numbers, addresses). If the redaction allowlist/denylist is keyword-based, KYC-specific fields may not be covered.
 
 Proposed Work
 
-Audit src/Agents/tools/*.ts for missing JSDoc on exported classes/methods (e.g. wallet.ts, swap.ts, riskAnalysis.ts, strategyRegistry.ts)
-Add an ESLint rule (eslint-plugin-jsdoc or similar) enforcing JSDoc on new tools going forward
-Backfill missing docs for existing tools
+Audit src/config/logger (or equivalent) redaction rules against all fields passed through src/services/kyc
+Extend the redaction list to cover KYC PII fields explicitly
 Acceptance Criteria
 
- docs/TOOLS.md regenerated with complete descriptions for every tool
- Lint rule added to prevent future undocumented tools merging
+ KYC PII fields confirmed redacted in a test that logs a sample KYC payload and asserts no PII appears in output
+ src/config/LOGGING.md updated with the full redaction field list
