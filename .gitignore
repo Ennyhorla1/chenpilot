@@ -14,3 +14,4 @@ contracts/target
 target
 *.log
 compile_error.log
+fix.md

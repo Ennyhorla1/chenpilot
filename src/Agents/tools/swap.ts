@@ -76,6 +76,8 @@ export class SwapTool extends BaseTool<SwapPayload> {
 
   private server: StellarSdk.Horizon.Server;
   private lockService: RedisLockService;
+  private readonly defaultLockTtlMs = 300000;
+  private readonly lockHeartbeatIntervalMs = 30000;
 
   /**
    *
@@ -105,11 +107,11 @@ export class SwapTool extends BaseTool<SwapPayload> {
    */
   async execute(payload: SwapPayload, userId: string): Promise<ToolResult> {
     // Create lifecycle record at intent state
-    const lifecycle = await transactionLifecycleService.create(
-      userId,
-      "swap",
-      { from: payload.from, to: payload.to, amount: payload.amount }
-    );
+    const lifecycle = await transactionLifecycleService.create(userId, "swap", {
+      from: payload.from,
+      to: payload.to,
+      amount: payload.amount,
+    });
 
     // Create a unique lock key for this user's trading operations
     const lockKey = `trade:${userId}`;
@@ -117,9 +119,9 @@ export class SwapTool extends BaseTool<SwapPayload> {
     try {
       // Acquire distributed lock to prevent concurrent trades for the same user
       const lockResult = await this.lockService.acquireLock(lockKey, userId, {
-        ttl: 60000, // 60 second lock timeout
-        retryDelay: 200, // 200ms between retries
-        maxRetries: 15, // Maximum 3 seconds of retries
+        ttl: this.defaultLockTtlMs,
+        retryDelay: 200,
+        maxRetries: 15,
       });
 
       if (!lockResult.acquired) {
@@ -128,7 +130,10 @@ export class SwapTool extends BaseTool<SwapPayload> {
           lockKey,
           error: lockResult.error,
         });
-        await transactionLifecycleService.fail(lifecycle.id, "Trade lock not acquired — another trade in progress");
+        await transactionLifecycleService.fail(
+          lifecycle.id,
+          "Trade lock not acquired — another trade in progress"
+        );
         return this.createErrorResult(
           "swap",
           "Another trade is currently in progress for your account. Please wait a moment and try again."
@@ -141,8 +146,16 @@ export class SwapTool extends BaseTool<SwapPayload> {
         lockValue: lockResult.lockValue,
       });
 
+      const heartbeat = this.startLockHeartbeat(lockKey, userId);
+
       // Ensure lock is released when function completes or throws
-      const lockReleased = await this.executeWithLock(payload, userId, lockKey, lifecycle.id);
+      const lockReleased = await this.executeWithLock(
+        payload,
+        userId,
+        lockKey,
+        lifecycle.id,
+        heartbeat
+      );
 
       return lockReleased;
     } catch (error) {
@@ -176,19 +189,42 @@ export class SwapTool extends BaseTool<SwapPayload> {
     }
   }
 
-  /**
-   *
-   */
+  private startLockHeartbeat(
+    lockKey: string,
+    userId: string
+  ): NodeJS.Timeout | undefined {
+    return setInterval(async () => {
+      const extended = await this.lockService.extendLock(
+        lockKey,
+        userId,
+        this.defaultLockTtlMs
+      );
+      if (!extended) {
+        logger.warn("Trade lock heartbeat failed", { userId, lockKey });
+      }
+    }, this.lockHeartbeatIntervalMs);
+  }
+
+  private stopLockHeartbeat(heartbeat?: NodeJS.Timeout): void {
+    if (heartbeat) {
+      clearInterval(heartbeat);
+    }
+  }
+
   private async executeWithLock(
     payload: SwapPayload,
     userId: string,
     lockKey: string,
-    lifecycleId: string
+    lifecycleId: string,
+    heartbeat?: NodeJS.Timeout
   ): Promise<ToolResult> {
     try {
       // Validate tokens
       if (payload.from === payload.to) {
-        await transactionLifecycleService.fail(lifecycleId, "Source and destination tokens must be different");
+        await transactionLifecycleService.fail(
+          lifecycleId,
+          "Source and destination tokens must be different"
+        );
         return this.createErrorResult(
           "swap",
           "Source and destination tokens must be different"
@@ -199,7 +235,10 @@ export class SwapTool extends BaseTool<SwapPayload> {
       const destAsset = STELLAR_ASSETS[payload.to];
 
       if (!sourceAsset || !destAsset) {
-        await transactionLifecycleService.fail(lifecycleId, "Invalid token symbol");
+        await transactionLifecycleService.fail(
+          lifecycleId,
+          "Invalid token symbol"
+        );
         return this.createErrorResult(
           "swap",
           "Invalid token symbol. Supported: XLM, USDC, USDT"
@@ -249,7 +288,10 @@ export class SwapTool extends BaseTool<SwapPayload> {
 
       // Execution phase — build and sign transaction
       await transactionLifecycleService.transition(lifecycleId, "executing", {
-        metadata: { estimatedOutput: priceQuote.estimatedOutput, riskLevel: riskAnalysis.riskLevel },
+        metadata: {
+          estimatedOutput: priceQuote.estimatedOutput,
+          riskLevel: riskAnalysis.riskLevel,
+        },
       });
 
       const sourceKeypair = this.getStellarAccount(userId);
@@ -330,6 +372,8 @@ export class SwapTool extends BaseTool<SwapPayload> {
           : "Unknown error occurred during swap"
       );
     } finally {
+      this.stopLockHeartbeat(heartbeat);
+
       // Always release the lock when done
       try {
         const released = await this.lockService.releaseLock(lockKey, userId);
@@ -339,7 +383,11 @@ export class SwapTool extends BaseTool<SwapPayload> {
           logger.warn("Failed to release trade lock", { userId, lockKey });
         }
       } catch (releaseError) {
-        logger.error("Error releasing trade lock", { userId, lockKey, error: releaseError });
+        logger.error("Error releasing trade lock", {
+          userId,
+          lockKey,
+          error: releaseError,
+        });
       }
     }
   }

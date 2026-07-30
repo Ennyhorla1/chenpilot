@@ -2,10 +2,12 @@ import { AppDataSource } from "../../config/Datasource";
 import { DurableExecution, ExecutionStatus } from "./DurableExecution.entity";
 import { DurableStep, StepStatus } from "./DurableStep.entity";
 import { toolRegistry } from "../registry/ToolRegistry";
-import { ExecutionPlan, PlanStep } from "./AgentPlanner";
+import { ExecutionPlan } from "./AgentPlanner";
 import logger from "../../config/logger";
-import { ToolResult } from "../registry/ToolMetadata";
-import { getSocketManager, RealtimeEventType } from "../../Gateway/socketManager";
+import {
+  getSocketManager,
+  RealtimeEventType,
+} from "../../Gateway/socketManager";
 
 export interface DurableExecutionResult {
   executionId: string;
@@ -25,7 +27,7 @@ export class DurableExecutor {
   async startExecution(
     plan: ExecutionPlan,
     userId: string,
-    context: Record<string, any> = {}
+    context: Record<string, unknown> = {}
   ): Promise<DurableExecution> {
     const execution = new DurableExecution();
     execution.planId = plan.planId;
@@ -48,19 +50,24 @@ export class DurableExecutor {
     });
 
     const savedExecution = await this.executionRepo.save(execution);
-    
+
     // If the whole plan requires approval, don't start immediately
     if (execution.requiresApproval) {
       execution.status = ExecutionStatus.AWAITING_APPROVAL;
       await this.executionRepo.save(execution);
       this.emitUpdate(RealtimeEventType.AGENT_APPROVAL_REQUIRED, execution);
-      logger.info("Durable execution awaiting plan-level approval", { executionId: execution.id });
+      logger.info("Durable execution awaiting plan-level approval", {
+        executionId: execution.id,
+      });
       return savedExecution;
     }
 
     // Start execution asynchronously
-    this.run(savedExecution.id).catch(err => {
-      logger.error("Error in background execution", { executionId: savedExecution.id, error: err });
+    this.run(savedExecution.id).catch((err) => {
+      logger.error("Error in background execution", {
+        executionId: savedExecution.id,
+        error: err,
+      });
     });
 
     return savedExecution;
@@ -69,7 +76,10 @@ export class DurableExecutor {
   /**
    * Resumes a paused or failed execution
    */
-  async resumeExecution(executionId: string, approvedBy?: string): Promise<void> {
+  async resumeExecution(
+    executionId: string,
+    approvedBy?: string
+  ): Promise<void> {
     const execution = await this.executionRepo.findOne({
       where: { id: executionId },
       relations: ["steps"],
@@ -87,7 +97,9 @@ export class DurableExecutor {
     }
 
     // Check if current step needs approval
-    const currentStep = execution.steps.find(s => s.stepNumber === execution.currentStepNumber);
+    const currentStep = execution.steps.find(
+      (s) => s.stepNumber === execution.currentStepNumber
+    );
     if (currentStep && currentStep.status === StepStatus.AWAITING_APPROVAL) {
       currentStep.approvedAt = new Date();
       currentStep.approvedBy = approvedBy;
@@ -108,7 +120,7 @@ export class DurableExecutor {
     const execution = await this.executionRepo.findOne({
       where: { id: executionId },
       relations: ["steps"],
-      order: { steps: { stepNumber: "ASC" } }
+      order: { steps: { stepNumber: "ASC" } },
     });
 
     if (!execution) return;
@@ -137,24 +149,34 @@ export class DurableExecutor {
         if (step.requiresApproval && !step.approvedAt) {
           step.status = StepStatus.AWAITING_APPROVAL;
           await this.stepRepo.save(step);
-          
+
           execution.status = ExecutionStatus.AWAITING_APPROVAL;
           await this.executionRepo.save(execution);
-          
+
           this.emitUpdate(RealtimeEventType.AGENT_APPROVAL_REQUIRED, execution);
-          logger.info("Execution suspended for step approval", { executionId, stepNumber: step.stepNumber });
+          logger.info("Execution suspended for step approval", {
+            executionId,
+            stepNumber: step.stepNumber,
+          });
           return;
         }
 
-        const success = await this.executeStepWithRetries(step, execution.userId);
-        
+        const success = await this.executeStepWithRetries(
+          step,
+          execution.userId
+        );
+
         if (success) {
-          this.emitUpdate(RealtimeEventType.AGENT_STEP_COMPLETED, execution, step.result);
+          this.emitUpdate(
+            RealtimeEventType.AGENT_STEP_COMPLETED,
+            execution,
+            step.result
+          );
         } else {
           execution.status = ExecutionStatus.FAILED;
           execution.errorMessage = `Step ${step.stepNumber} (${step.action}) failed after ${step.retryCount} retries: ${step.error}`;
           await this.executionRepo.save(execution);
-          
+
           this.emitUpdate(RealtimeEventType.AGENT_EXECUTION_FAILED, execution);
           return;
         }
@@ -162,21 +184,29 @@ export class DurableExecutor {
 
       execution.status = ExecutionStatus.COMPLETED;
       await this.executionRepo.save(execution);
-      
+
       this.emitUpdate(RealtimeEventType.AGENT_EXECUTION_COMPLETED, execution);
       logger.info("Durable execution completed", { executionId: execution.id });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
       execution.status = ExecutionStatus.FAILED;
       execution.errorMessage = errorMessage;
       await this.executionRepo.save(execution);
-      
+
       this.emitUpdate(RealtimeEventType.AGENT_EXECUTION_FAILED, execution);
-      logger.error("Durable execution failed", { executionId: execution.id, error: errorMessage });
+      logger.error("Durable execution failed", {
+        executionId: execution.id,
+        error: errorMessage,
+      });
     }
   }
 
-  private emitUpdate(type: RealtimeEventType, execution: DurableExecution, result?: any) {
+  private emitUpdate(
+    type: RealtimeEventType,
+    execution: DurableExecution,
+    result?: unknown
+  ) {
     try {
       const socketManager = getSocketManager();
       socketManager.getEventEmitter().emitAgentExecutionUpdate(type, {
@@ -218,23 +248,30 @@ export class DurableExecutor {
           await this.stepRepo.save(step);
           return true;
         } else {
-          throw new Error(result.error || "Tool execution returned failed status");
+          throw new Error(
+            result.error || "Tool execution returned failed status"
+          );
         }
       } catch (error) {
         step.retryCount++;
         step.error = error instanceof Error ? error.message : "Unknown error";
         step.status = StepStatus.FAILED;
         await this.stepRepo.save(step);
-        
-        logger.warn(`Step ${step.stepNumber} failed, attempt ${step.retryCount}/${step.maxRetries}`, {
-          executionId: step.execution?.id,
-          action: step.action,
-          error: step.error
-        });
+
+        logger.warn(
+          `Step ${step.stepNumber} failed, attempt ${step.retryCount}/${step.maxRetries}`,
+          {
+            executionId: step.execution?.id,
+            action: step.action,
+            error: step.error,
+          }
+        );
 
         // Exponential backoff could be added here
         if (step.retryCount < step.maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, step.retryCount) * 1000));
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.pow(2, step.retryCount) * 1000)
+          );
         }
       }
     }
@@ -244,14 +281,17 @@ export class DurableExecutor {
   /**
    * Operator repair: Manual retry of a failed step
    */
-  async repairRetryStep(executionId: string, stepNumber: number): Promise<void> {
+  async repairRetryStep(
+    executionId: string,
+    stepNumber: number
+  ): Promise<void> {
     const step = await this.stepRepo.findOne({
       where: { execution: { id: executionId }, stepNumber },
-      relations: ["execution"]
+      relations: ["execution"],
     });
 
     if (!step) throw new Error("Step not found");
-    
+
     step.status = StepStatus.PENDING;
     step.retryCount = 0;
     step.error = undefined;
@@ -263,10 +303,14 @@ export class DurableExecutor {
   /**
    * Operator repair: Skip a failed step
    */
-  async repairSkipStep(executionId: string, stepNumber: number, resultOverride?: any): Promise<void> {
+  async repairSkipStep(
+    executionId: string,
+    stepNumber: number,
+    resultOverride?: unknown
+  ): Promise<void> {
     const step = await this.stepRepo.findOne({
       where: { execution: { id: executionId }, stepNumber },
-      relations: ["execution"]
+      relations: ["execution"],
     });
 
     if (!step) throw new Error("Step not found");
@@ -282,10 +326,14 @@ export class DurableExecutor {
   /**
    * Operator repair: Update step payload and retry
    */
-  async repairUpdateAndRetry(executionId: string, stepNumber: number, newPayload: any): Promise<void> {
+  async repairUpdateAndRetry(
+    executionId: string,
+    stepNumber: number,
+    newPayload: unknown
+  ): Promise<void> {
     const step = await this.stepRepo.findOne({
       where: { execution: { id: executionId }, stepNumber },
-      relations: ["execution"]
+      relations: ["execution"],
     });
 
     if (!step) throw new Error("Step not found");
@@ -307,10 +355,10 @@ export class DurableExecutor {
       where: [
         { status: ExecutionStatus.RUNNING },
         { status: ExecutionStatus.FAILED },
-        { status: ExecutionStatus.PAUSED }
+        { status: ExecutionStatus.PAUSED },
       ],
       relations: ["steps"],
-      order: { updatedAt: "DESC" }
+      order: { updatedAt: "DESC" },
     });
   }
 }

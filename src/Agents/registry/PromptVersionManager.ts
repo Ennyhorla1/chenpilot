@@ -35,22 +35,10 @@ export class PromptVersionManager {
     await this.repo.update({ id }, { weight });
   }
 
-  async listVersions(type?: string) {
+  async listVersions(type?: string): Promise<PromptVersion[]> {
     const where = type ? { type } : {};
     const versions = await this.repo.find({ where });
-
-    for (const version of versions) {
-      const metrics = await promptVersionService.getMetrics(version.id);
-      console.log({
-        id: version.id,
-        name: version.name,
-        type: version.type,
-        version: version.version,
-        isActive: version.isActive,
-        weight: version.weight,
-        metrics,
-      });
-    }
+    return versions;
   }
 
   async compareVersions(id1: string, id2: string) {

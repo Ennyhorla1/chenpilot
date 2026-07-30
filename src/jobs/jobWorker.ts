@@ -1,6 +1,7 @@
 import logger from "../config/logger";
 import { QueueJob } from "./job.entity";
 import { JobQueueService, jobQueueService } from "./jobQueue.service";
+import { propagateJobContext } from "../observability/jobContext";
 
 export type JobHandlerResult =
   | { outcome: "completed"; result?: Record<string, unknown> }
@@ -152,7 +153,7 @@ export class JobWorker {
     }, Math.max(1000, Math.floor(this.leaseMs / 2)));
 
     try {
-      const result = (await handler.handle(job)) ?? { outcome: "completed" as const };
+      const result = await propagateJobContext(job, async () => (await handler.handle(job)) ?? { outcome: "completed" as const });
 
       switch (result.outcome) {
         case "completed":

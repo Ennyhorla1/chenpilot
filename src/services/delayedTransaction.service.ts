@@ -166,7 +166,7 @@ export class DelayedTransactionService {
         ? new Date(delayedConfig.scheduledAt)
         : new Date();
 
-    const job = await jobQueueService.enqueue({
+    const job = await jobQueueService.enqueueWithContext({
       queue: "transactions",
       jobType: "delayed_transaction.submit",
       userId,

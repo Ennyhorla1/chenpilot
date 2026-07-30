@@ -99,6 +99,12 @@ For SDK integrators, stages 2 through 6 are represented by `ContractClient`.
 For backend agent workflows, the same conceptual stages are implemented with
 `src/services/soroban` plus agent planner/executor modules.
 
+## Agent Execution Semantics
+
+Planner execution is intentionally conservative for safety. When a plan step fails, the executor stops processing subsequent steps, records the failed step, and returns a partial result with the successfully completed steps surfaced in the response. The executor does not perform automatic rollback of previously completed steps, because compensating actions are not yet implemented for the general tool set.
+
+This behavior is the current contract for multi-step agent flows and should be preserved unless a follow-up design introduces explicit rollback/compensation support.
+
 ## Migrations
 
 Database migrations live under `src/migrations` and use timestamp-prefixed
