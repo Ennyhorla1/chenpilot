@@ -10,7 +10,7 @@ interface QAPayload {
 }
 
 /**
- *
+ * Tool for answering user questions about transactions, balances, and contacts
  */
 export class QATool extends BaseTool {
   metadata: ToolMetadata = {
@@ -45,7 +45,10 @@ export class QATool extends BaseTool {
 
   private qaService = container.resolve(QaService);
   /**
-   *
+   * Execute a QA operation
+   * @param payload - The operation payload containing operation type and query
+   * @param userId - The user asking the question
+   * @returns ToolResult with the answer
    */
   async execute(
     payload: Record<string, unknown>,
@@ -70,7 +73,10 @@ export class QATool extends BaseTool {
   }
 
   /**
-   *
+   * Process a user query through the QA service
+   * @param data - The query payload
+   * @param userId - The user asking the question
+   * @returns ToolResult with the answer
    */
   private async ask(data: QAPayload, userId: string): Promise<ToolResult> {
     if (!data?.query) {

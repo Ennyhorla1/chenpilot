@@ -14,7 +14,7 @@ interface PricePayload extends Record<string, unknown> {
 }
 
 /**
- *
+ * Tool for getting real-time asset prices from Stellar DEX with Redis caching
  */
 export class PriceTool extends BaseTool<PricePayload> {
   metadata: ToolMetadata = {
@@ -74,7 +74,9 @@ export class PriceTool extends BaseTool<PricePayload> {
   };
 
   /**
-   *
+   * Execute a price operation
+   * @param payload - The price payload with operation type and query parameters
+   * @returns ToolResult with price data
    */
   async execute(payload: PricePayload): Promise<ToolResult> {
     try {
@@ -105,7 +107,9 @@ export class PriceTool extends BaseTool<PricePayload> {
   }
 
   /**
-   *
+   * Get price quote for a single asset pair
+   * @param payload - Payload with from, to assets and optional amount
+   * @returns ToolResult with price quote
    */
   private async getPrice(payload: PricePayload): Promise<ToolResult> {
     if (!payload.from || !payload.to) {
@@ -135,7 +139,9 @@ export class PriceTool extends BaseTool<PricePayload> {
   }
 
   /**
-   *
+   * Get batch price quotes for multiple asset pairs
+   * @param payload - Payload with pairs array
+   * @returns ToolResult with multiple price quotes
    */
   private async getPrices(payload: PricePayload): Promise<ToolResult> {
     if (!payload.pairs || !Array.isArray(payload.pairs)) {
@@ -160,7 +166,9 @@ export class PriceTool extends BaseTool<PricePayload> {
   }
 
   /**
-   *
+   * Get orderbook depth for an asset pair
+   * @param payload - Payload with from, to assets and optional depth limit
+   * @returns ToolResult with orderbook data
    */
   private async getOrderbook(payload: PricePayload): Promise<ToolResult> {
     if (!payload.from || !payload.to) {
@@ -196,7 +204,8 @@ export class PriceTool extends BaseTool<PricePayload> {
   }
 
   /**
-   *
+   * Get Redis price cache statistics and health status
+   * @returns ToolResult with cache stats
    */
   private async getCacheStats(): Promise<ToolResult> {
     const stats = await priceCacheService.getStats();

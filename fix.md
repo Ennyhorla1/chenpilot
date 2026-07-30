@@ -1,13 +1,14 @@
- Expand CONTRIBUTING.md with a concrete "good first issue" onboarding path
+Add JSDoc/TSDoc coverage requirement for src/Agents/tools/*.ts
 Repo Avatar
 gear5labs/chenpilot
-CONTRIBUTING.md references "a roadmap of 50 priority issues" and points to help wanted/good first issue labels, but doesn't walk a new contributor through what a minimal first contribution looks like end-to-end (e.g., which specific test suite to run locally to confirm their environment works before picking up an issue, or a worked example of a trivial tool addition).
+package.json shows src/Agents/tools/*.ts triggers npm run gen:docs (scripts/generateToolDocs.mjs) on commit via lint-staged, implying tool docs are auto-generated from source comments. If tools lack proper JSDoc annotations, the generated docs (docs/TOOLS.md) will be incomplete or empty for those entries.
 
 Proposed Work
 
-Add a "Your First PR" walkthrough section to CONTRIBUTING.md: environment sanity check (npm test), a suggested first issue category (e.g., docs or test-coverage issues from this batch), and what reviewers will look for
-Link directly to issues labeled good first issue in this batch as concrete starting points
+Audit src/Agents/tools/*.ts for missing JSDoc on exported classes/methods (e.g. wallet.ts, swap.ts, riskAnalysis.ts, strategyRegistry.ts)
+Add an ESLint rule (eslint-plugin-jsdoc or similar) enforcing JSDoc on new tools going forward
+Backfill missing docs for existing tools
 Acceptance Criteria
 
- New section added to CONTRIBUTING.md
- At least 3 issues from this list are labeled good first issue and linked as examples
+ docs/TOOLS.md regenerated with complete descriptions for every tool
+ Lint rule added to prevent future undocumented tools merging

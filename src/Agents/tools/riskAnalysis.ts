@@ -22,7 +22,7 @@ const STELLAR_ASSETS: Record<string, StellarSdk.Asset> = {
 };
 
 /**
- *
+ * Tool for analyzing sandwich attack and flash swap risks for DEX swaps
  */
 export class RiskAnalysisTool extends BaseTool<RiskAnalysisPayload> {
   metadata: ToolMetadata = {
@@ -60,7 +60,10 @@ export class RiskAnalysisTool extends BaseTool<RiskAnalysisPayload> {
   };
 
   /**
-   *
+   * Execute a risk analysis for a potential swap
+   * @param payload - The payload with from, to assets and amount
+   * @param userId - The user requesting analysis
+   * @returns ToolResult with risk assessment including sandwich attack risk
    */
   async execute(
     payload: RiskAnalysisPayload,

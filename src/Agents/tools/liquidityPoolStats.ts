@@ -20,7 +20,7 @@ const POOL_ID_REGEX = /^[0-9a-f]{64}$/i;
 const FEE_PERCENTAGE = 0.003; // 0.30% standard Stellar AMM fee
 
 /**
- *
+ * Tool for fetching statistics for a Stellar AMM liquidity pool including reserves, volume, and estimated APR
  */
 export class LiquidityPoolStatsTool extends BaseTool<LiquidityPoolStatsPayload> {
   metadata: ToolMetadata = {
@@ -48,7 +48,9 @@ export class LiquidityPoolStatsTool extends BaseTool<LiquidityPoolStatsPayload> 
   };
 
   /**
-   *
+   * Validate the pool ID parameter
+   * @param payload - The payload containing poolId
+   * @returns Validation result with errors array
    */
   validate(payload: LiquidityPoolStatsPayload): {
     valid: boolean;
@@ -69,7 +71,9 @@ export class LiquidityPoolStatsTool extends BaseTool<LiquidityPoolStatsPayload> 
   }
 
   /**
-   *
+   * Execute liquidity pool stats retrieval
+   * @param payload - The payload containing the pool ID
+   * @returns ToolResult with pool statistics including reserves, volume, and APR
    */
   async execute(payload: LiquidityPoolStatsPayload): Promise<ToolResult> {
     const validation = this.validate(payload);

@@ -41,7 +41,7 @@ interface TransferPayload {
 }
 
 /**
- *
+ * Tool for wallet operations including balance checking, transfers, and address retrieval
  */
 export class WalletTool extends BaseTool {
   metadata: ToolMetadata = {
@@ -88,7 +88,7 @@ export class WalletTool extends BaseTool {
   private provider: RpcProvider;
   private contactService = container.resolve(ContactService);
   /**
-   *
+   * Initialize the wallet tool with StarkNet provider
    */
   constructor() {
     super();
@@ -98,7 +98,10 @@ export class WalletTool extends BaseTool {
   }
 
   /**
-   *
+   * Get account data for a user from the secret store
+   * @param userId - The user ID
+   * @returns Account data
+   * @throws Error if account not found
    */
   private getAccount(userId: string): AccountData {
     const account = accountSecretStore.getAccountByUserId<AccountData>(userId);
@@ -107,7 +110,9 @@ export class WalletTool extends BaseTool {
   }
 
   /**
-   *
+   * Create a StarkNet Account instance for the user
+   * @param userId - The user ID
+   * @returns StarkNet Account
    */
   private getStarkAccount(userId: string): Account {
     const accountData = this.getAccount(userId);
@@ -120,7 +125,10 @@ export class WalletTool extends BaseTool {
   }
 
   /**
-   *
+   * Execute a wallet operation
+   * @param payload - The operation payload with operation type and parameters
+   * @param userId - The user requesting the operation
+   * @returns ToolResult with wallet operation result
    */
   async execute(
     payload: Record<string, unknown>,
@@ -144,7 +152,10 @@ export class WalletTool extends BaseTool {
   }
 
   /**
-   *
+   * Get the token balance for a user's wallet
+   * @param payload - Payload with token type
+   * @param userId - The user ID
+   * @returns ToolResult with balance data
    */
   private async getBalance(
     payload: BalancePayload,
@@ -190,7 +201,10 @@ export class WalletTool extends BaseTool {
   }
 
   /**
-   *
+   * Transfer tokens to a recipient address
+   * @param payload - Payload with recipient, amount, and optional token type
+   * @param userId - The user initiating the transfer
+   * @returns ToolResult with transfer result
    */
   private async transfer(
     payload: TransferPayload,
@@ -250,7 +264,9 @@ export class WalletTool extends BaseTool {
   }
 
   /**
-   *
+   * Get the wallet address for a user
+   * @param userId - The user ID
+   * @returns ToolResult with wallet address
    */
   private async getWalletAddress(userId: string): Promise<ToolResult> {
     try {

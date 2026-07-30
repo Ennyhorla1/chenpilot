@@ -20,7 +20,7 @@ interface ReconciliationPayload extends Record<string, unknown> {
 }
 
 /**
- *
+ * Tool for detecting and surfacing drift between backend records and on-chain reality
  */
 export class ReconciliationTool extends BaseTool<ReconciliationPayload> {
   metadata: ToolMetadata = {
@@ -59,7 +59,10 @@ export class ReconciliationTool extends BaseTool<ReconciliationPayload> {
   };
 
   /**
-   *
+   * Execute a reconciliation operation
+   * @param payload - The operation payload with operation type and scope
+   * @param userId - The user requesting reconciliation
+   * @returns ToolResult with reconciliation report
    */
   async execute(
     payload: ReconciliationPayload,
@@ -79,7 +82,10 @@ export class ReconciliationTool extends BaseTool<ReconciliationPayload> {
   }
 
   /**
-   *
+   * Run a full reconciliation check across transactions, balances, and contract state
+   * @param payload - The payload with scope configuration
+   * @param userId - The user requesting reconciliation
+   * @returns ToolResult with drift report
    */
   private async runReconciliation(
     payload: ReconciliationPayload,
@@ -128,7 +134,10 @@ export class ReconciliationTool extends BaseTool<ReconciliationPayload> {
   }
 
   /**
-   *
+   * Retrieve past reconciliation reports for a user
+   * @param payload - The payload with optional limit parameter
+   * @param userId - The user requesting reports
+   * @returns ToolResult with past reports
    */
   private async getReports(
     payload: ReconciliationPayload,
