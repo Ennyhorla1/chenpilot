@@ -1,5 +1,5 @@
 [package]
-name = "btc_relay"
+name = "strategy_boundary"
 version = "0.1.0"
 edition = "2021"
 
@@ -12,4 +12,4 @@ contract_failure = { path = "../contract_failure" }
 
 [dev-dependencies]
 soroban-sdk = { version = "22.0.0", features = ["testutils"] }
-btc_relay_crypto = { path = "../btc_relay_crypto" }
+

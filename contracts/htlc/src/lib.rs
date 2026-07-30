@@ -3,6 +3,7 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, symbol_short,
     Address, Bytes, BytesN, Env, token,
 };
+use contract_failure::{fail, FailureReason};
 
 // TTL for swap state: swaps auto-expire after the expiry ledger + grace period
 // Add 7 days (1_209_600 ledgers at 5s/ledger) beyond expiry for post-claim/refund records
@@ -109,17 +110,17 @@ impl HtlcContract {
         initiator.require_auth();
 
         if amount <= 0 {
-            panic!("amount must be positive");
+            fail(&env, FailureReason::AmountNotPositive);
         }
         if expiry_ledger <= env.ledger().sequence() {
-            panic!("expiry must be in the future");
+            fail(&env, FailureReason::ExpiryNotInFuture);
         }
 
         // Derive a unique swap_id from the parameters
         let swap_id = Self::derive_swap_id(&env, &secret_hash, &initiator, expiry_ledger);
 
         if env.storage().persistent().has(&DataKey::Swap(swap_id.clone())) {
-            panic!("swap already exists");
+            fail(&env, FailureReason::SwapAlreadyExists);
         }
 
         // Pull funds from initiator into the contract
@@ -167,13 +168,13 @@ impl HtlcContract {
             .storage()
             .persistent()
             .get(&DataKey::Swap(swap_id.clone()))
-            .expect("swap not found");
+            .unwrap_or_else(|| fail(&env, FailureReason::NotFound));
 
         if swap.status != SwapStatus::Active {
-            panic!("swap not active");
+            fail(&env, FailureReason::SwapNotActive);
         }
         if env.ledger().sequence() > swap.expiry_ledger {
-            panic!("swap expired");
+            fail(&env, FailureReason::SwapExpired);
         }
 
         // Verify the recipient is who they claim to be
@@ -186,7 +187,7 @@ impl HtlcContract {
         let computed: BytesN<32> = env.crypto().sha256(&combined).into();
 
         if computed != swap.secret_hash {
-            panic!("invalid preimage or recipient key mismatch");
+            fail(&env, FailureReason::InvalidPreimage);
         }
 
         swap.status = SwapStatus::Claimed;
@@ -218,13 +219,13 @@ impl HtlcContract {
             .storage()
             .persistent()
             .get(&DataKey::Swap(swap_id.clone()))
-            .expect("swap not found");
+            .unwrap_or_else(|| fail(&env, FailureReason::NotFound));
 
         if swap.status != SwapStatus::Active {
-            panic!("swap not active");
+            fail(&env, FailureReason::SwapNotActive);
         }
         if env.ledger().sequence() <= swap.expiry_ledger {
-            panic!("swap not yet expired");
+            fail(&env, FailureReason::SwapNotYetExpired);
         }
 
         swap.initiator.require_auth();
