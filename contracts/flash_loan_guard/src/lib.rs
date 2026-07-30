@@ -210,6 +210,8 @@ impl FlashLoanGuardContract {
                 trigger_ledger: 0,
                 trigger_timestamp: 0,
                 consecutive_violations: 0,
+            },
+        );
 
         env.events().publish(
             (symbol_short!("flg"), symbol_short!("init")),
