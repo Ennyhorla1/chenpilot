@@ -8,16 +8,79 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title CoreEngine
- * @dev Main contract for AI-driven swap and liquidity operations with emergency evacuation.
+ * @notice EVM-side custody and execution-intent boundary for Chen Pilot.
+ *
+ * @dev This contract deliberately does not execute cross-chain transactions,
+ * call bridges, or select external liquidity venues. Its EVM responsibility is
+ * limited to:
+ *
+ *  - holding user ERC20 principal;
+ *  - recording validated execution intents submitted by authorized clients;
+ *  - exposing an emergency principal withdrawal path while paused; and
+ *  - emitting versioned records for off-chain execution infrastructure.
+ *
+ * An authorized client may consume the emitted intent and perform work on an
+ * external venue or chain. Completion and settlement of that external work are
+ * outside this contract's trust boundary and must not be inferred from these
+ * events alone.
  */
 contract CoreEngine is EmergencyControl, ReentrancyGuard {
-    // Event version for backward compatibility
+    using SafeERC20 for IERC20;
+
+    /// @notice Version of the event schema emitted by this boundary.
     uint256 public constant EVENT_VERSION = 1;
 
-    // Authorized client addresses for event consumption
+    /// @notice Accounts permitted to submit execution intents.
     mapping(address => bool) public authorizedClients;
 
-    /// @dev Only owner (DEFAULT_ADMIN_ROLE) can manage authorized clients
+    /// @notice User principal held by this contract, tracked per ERC20 token.
+    mapping(address => mapping(address => uint256)) public userPrincipal;
+
+    event Deposited(
+        uint256 version,
+        address indexed actor,
+        address indexed user,
+        address indexed token,
+        uint256 amount
+    );
+
+    event Swapped(
+        uint256 version,
+        address indexed actor,
+        address indexed user,
+        address indexed fromToken,
+        address toToken,
+        uint256 amount
+    );
+
+    event Rebalanced(
+        uint256 version,
+        address indexed actor,
+        address indexed user,
+        address[] tokens,
+        uint256[] amounts
+    );
+
+    event EmergencyWithdrawn(
+        uint256 version,
+        address indexed actor,
+        address indexed user,
+        address indexed token,
+        uint256 amount
+    );
+
+    event ClientAuthorized(
+        uint256 version,
+        address indexed actor,
+        address indexed client
+    );
+
+    event ClientRevoked(
+        uint256 version,
+        address indexed actor,
+        address indexed client
+    );
+
     modifier onlyOwner() {
         require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "Not owner");
         _;
@@ -28,82 +91,119 @@ contract CoreEngine is EmergencyControl, ReentrancyGuard {
         _;
     }
 
-    /// @dev Owner can grant client permission
+    /**
+     * @notice Authorize an off-chain or contract-based execution client.
+     * @dev Authorization grants permission to submit intents only. It does
+     * not grant permission to withdraw user principal or administer roles.
+     */
     function grantClient(address client) external onlyOwner {
+        require(client != address(0), "Invalid client");
         authorizedClients[client] = true;
         emit ClientAuthorized(EVENT_VERSION, msg.sender, client);
     }
 
-    /// @dev Owner can revoke client permission
+    /**
+     * @notice Revoke an execution client's permission to submit intents.
+     */
     function revokeClient(address client) external onlyOwner {
         authorizedClients[client] = false;
         emit ClientRevoked(EVENT_VERSION, msg.sender, client);
     }
 
-    using SafeERC20 for IERC20;
-
-    // Track user principal deposits (excluding yield/gains)
-    mapping(address => mapping(address => uint256)) public userPrincipal;
-
-    event Deposited(uint256 indexed version, address indexed actor, address indexed user, address indexed token, uint256 amount);
-    event Swapped(uint256 indexed version, address indexed actor, address indexed user, address indexed fromToken, address indexed toToken, uint256 amount);
-    event Rebalanced(uint256 indexed version, address indexed actor, address indexed user, address[] tokens, uint256[] amounts);
-    event EmergencyWithdrawn(uint256 indexed version, address indexed actor, address indexed user, address indexed token, uint256 amount);
-    event ClientAuthorized(uint256 indexed version, address indexed actor, address indexed client);
-    event ClientRevoked(uint256 indexed version, address indexed actor, address indexed client);
-
     /**
-     * @dev Deposit principal into the contract.
-     * @param token Address of the token to deposit.
-     * @param amount Amount of tokens to deposit.
+     * @notice Deposit ERC20 principal into the EVM boundary.
+     * @param token ERC20 token to deposit.
+     * @param amount Amount of principal to deposit.
      */
-    function deposit(address token, uint256 amount) external whenNotPaused nonReentrant {
+    function deposit(
+        address token,
+        uint256 amount
+    ) external whenNotPaused nonReentrant {
+        require(token != address(0), "Invalid token");
         require(amount > 0, "Amount must be greater than zero");
+
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         userPrincipal[msg.sender][token] += amount;
+
         emit Deposited(EVENT_VERSION, msg.sender, msg.sender, token, amount);
     }
 
     /**
-     * @dev Execute an AI-driven swap. Gated by whenNotPaused.
-     * @param fromToken Token to swap from.
-     * @param toToken Token to swap to.
-     * @param amount Amount to swap.
+     * @notice Submit a local execution intent for an authorized executor.
+     *
+     * @dev This function intentionally does not move tokens or claim that a
+     * swap occurred. The event is an EVM boundary record consumed by external
+     * execution infrastructure. The legacy name is retained for ABI
+     * compatibility.
      */
-    function swap(address fromToken, address toToken, uint256 amount) external whenNotPaused nonReentrant {
+    function swap(
+        address user,
+        address fromToken,
+        address toToken,
+        uint256 amount
+    ) external whenNotPaused nonReentrant onlyAuthorizedClient {
+        require(user != address(0), "Invalid user");
+        require(fromToken != address(0), "Invalid source token");
+        require(toToken != address(0), "Invalid destination token");
+        require(fromToken != toToken, "Tokens must differ");
         require(amount > 0, "Amount must be greater than zero");
-        // AI-driven swap logic would go here
-        // For this task, we assume the logic exists and ensure it is gated.
-        emit Swapped(EVENT_VERSION, msg.sender, msg.sender, fromToken, toToken, amount);
+
+        emit Swapped(
+            EVENT_VERSION,
+            msg.sender,
+            user,
+            fromToken,
+            toToken,
+            amount
+        );
     }
 
     /**
-     * @dev Rebalance the portfolio. Gated by whenNotPaused.
-     * @param tokens Array of tokens to rebalance.
-     * @param amounts Array of target amounts.
+     * @notice Submit a local portfolio rebalance intent.
+     *
+     * @dev No asset movement occurs here. Execution and settlement belong to
+     * the authorized client and the external venue it integrates with.
+     * The legacy name is retained for ABI compatibility.
      */
-    function rebalance(address[] calldata tokens, uint256[] calldata amounts) external whenNotPaused nonReentrant {
+    function rebalance(
+        address user,
+        address[] calldata tokens,
+        uint256[] calldata amounts
+    ) external whenNotPaused nonReentrant onlyAuthorizedClient {
+        require(user != address(0), "Invalid user");
         require(tokens.length == amounts.length, "Invalid input lengths");
-        // Rebalancing logic would go here
-        emit Rebalanced(EVENT_VERSION, msg.sender, msg.sender, tokens, amounts);
+        require(tokens.length > 0, "Empty rebalance");
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            require(tokens[i] != address(0), "Invalid token");
+            require(amounts[i] > 0, "Amount must be greater than zero");
+        }
+
+        emit Rebalanced(EVENT_VERSION, msg.sender, user, tokens, amounts);
     }
 
     /**
-     * @dev Emergency evacuation of principal funds.
-     * Only available when the contract is paused.
-     * Returns only the original principal deposited by the user.
-     * @param token Address of the token to withdraw.
+     * @notice Withdraw all recorded principal for a token during an emergency.
+     * @dev Only the caller's recorded principal is returned. No yield or
+     * unaccounted balance is distributed by this function.
      */
-    function emergencyWithdraw(address token) external whenPaused nonReentrant {
+    function emergencyWithdraw(
+        address token
+    ) external whenPaused nonReentrant {
+        require(token != address(0), "Invalid token");
+
         uint256 principal = userPrincipal[msg.sender][token];
         require(principal > 0, "No principal to withdraw");
 
-        // Reset principal before transfer to prevent re-entrancy
         userPrincipal[msg.sender][token] = 0;
-
-        // Perform the transfer
         IERC20(token).safeTransfer(msg.sender, principal);
 
-        emit EmergencyWithdrawn(EVENT_VERSION, msg.sender, msg.sender, token, principal);
+        emit EmergencyWithdrawn(
+            EVENT_VERSION,
+            msg.sender,
+            msg.sender,
+            token,
+            principal
+        );
     }
 }

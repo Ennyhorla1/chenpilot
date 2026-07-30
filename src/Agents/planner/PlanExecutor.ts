@@ -5,7 +5,6 @@ import { ExecutionPlan, PlanStep } from "./AgentPlanner";
 import { HashedPlan, planHashService } from "./planHash";
 import { policyEnforcer } from "../policy/PolicyEnforcer";
 import { durableExecutor } from "./DurableExecutor";
-import { ExecutionStatus } from "./DurableExecution.entity";
 import logger from "../../config/logger";
 
 export interface ExecutionResult {
@@ -50,7 +49,7 @@ export class PlanExecutor {
     options: ExecutionOptions = {}
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
-    
+
     logger.info("Starting plan execution", {
       planId: plan.planId,
       userId,

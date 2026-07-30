@@ -2,6 +2,7 @@ import { DataSource, LessThan, Repository } from "typeorm";
 import AppDataSource from "../config/Datasource";
 import logger from "../config/logger";
 import { QueueJob } from "./job.entity";
+import { getExecutionContext } from "../observability/context";
 
 export interface EnqueueJobInput {
   queue: string;
@@ -50,6 +51,27 @@ export class JobQueueService {
       availableAt: saved.availableAt,
     });
     return saved;
+  }
+
+  async enqueueWithContext<T extends Record<string, unknown>>(
+    input: EnqueueJobInput
+  ): Promise<QueueJob> {
+    const context = getExecutionContext();
+    return this.enqueue({
+      ...input,
+      correlationId: input.correlationId ?? context?.correlationId,
+      metadata: {
+        ...input.metadata,
+        ...(context
+          ? {
+              requestId: context.requestId,
+              executionId: context.executionId,
+              rootExecutionId: context.rootExecutionId,
+              parentExecutionId: context.parentExecutionId,
+            }
+          : {}),
+      },
+    });
   }
 
   async leaseJobs(

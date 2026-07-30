@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "contract_failure",
     "btc_relay",
     "btc_relay_crypto",
     "core_vault",
@@ -14,6 +15,8 @@ members = [
     "rbac",
     "relayer_slashing",
     "strategy_registry",
+    "strategy_boundary",
+    "unified_auth",
 ]
 resolver = "2"
 

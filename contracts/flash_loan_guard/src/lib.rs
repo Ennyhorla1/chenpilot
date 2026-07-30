@@ -3,6 +3,7 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, contractclient, symbol_short,
     Address, Env, Vec,
 };
+use contract_failure::{fail, unwrap_or_fail, FailureReason};
 
 // TTL for price snapshot: ~1 day (172_800 ledgers at 5s/ledger)
 // Snapshots must be refreshed regularly to maintain price safety
@@ -199,7 +200,7 @@ pub struct FlashLoanGuardContract;
 impl FlashLoanGuardContract {
     pub fn initialize(env: Env, config: Config) {
         if env.storage().instance().has(&DataKey::Config) {
-            panic!("already initialized");
+            fail(&env, FailureReason::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::Config, &config);
         env.storage().instance().set(
@@ -209,6 +210,8 @@ impl FlashLoanGuardContract {
                 trigger_ledger: 0,
                 trigger_timestamp: 0,
                 consecutive_violations: 0,
+            },
+        );
 
         env.events().publish(
             (symbol_short!("flg"), symbol_short!("init")),
@@ -229,7 +232,11 @@ impl FlashLoanGuardContract {
     }
 
     pub fn update_config(env: Env, config: Config) {
-        let current: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
+        let current: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         current.admin.require_auth();
         env.storage().instance().set(&DataKey::Config, &config);
 
@@ -253,7 +260,11 @@ impl FlashLoanGuardContract {
 
     /// Update circuit breaker state and auto-release if window expired
     fn update_circuit_breaker(env: Env, current_ledger: u32, current_time: u64) {
-        let config: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         let mut cb: CircuitBreakerState = env
             .storage()
             .instance()
@@ -278,7 +289,11 @@ impl FlashLoanGuardContract {
     }
 
     pub fn record_snapshot(env: Env, oracle_timestamp: u64, oracle_sequence: u64) {
-        let config: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         let current_ledger = env.ledger().sequence();
         let current_time = env.ledger().timestamp();
 
@@ -295,7 +310,7 @@ impl FlashLoanGuardContract {
                 consecutive_violations: 0,
             });
         if cb.triggered {
-            panic!("flash-loan guard: circuit breaker active");
+            fail(&env, FailureReason::CircuitBreakerActive);
         }
 
         // Oracle freshness check
@@ -311,7 +326,7 @@ impl FlashLoanGuardContract {
                     max_staleness: config.max_oracle_staleness_seconds,
                 },
             );
-            panic!("flash-loan guard: oracle data too stale (freshness check failed)");
+            fail(&env, FailureReason::OracleDataStale);
         }
 
         let oracle = PriceOracleClient::new(&env, &config.oracle);
@@ -330,11 +345,11 @@ impl FlashLoanGuardContract {
             .get::<DataKey, PriceSnapshot>(&DataKey::PriceSnapshot)
         {
             if current_ledger < snap.ledger + config.min_ledger_gap {
-                panic!("snapshot too recent: min_ledger_gap not met");
+                fail(&env, FailureReason::SnapshotTooRecent);
             }
 
             if oracle_sequence <= snap.oracle_sequence {
-                panic!("flash-loan guard: oracle sequence not increasing (sequencing attack detected)");
+                fail(&env, FailureReason::OracleSequenceNotIncreasing);
             }
 
             let price_diff = if snap.price > 0 {
@@ -343,8 +358,10 @@ impl FlashLoanGuardContract {
                 } else {
                     price - snap.price
                 };
-                diff.checked_mul(10_000).expect("overflow")
-                    .checked_div(snap.price).expect("div zero")
+                diff.checked_mul(10_000)
+                    .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError))
+                    .checked_div(snap.price)
+                    .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError))
             } else {
                 0
             };
@@ -361,7 +378,7 @@ impl FlashLoanGuardContract {
                         price_diff,
                     },
                 );
-                panic!("flash-loan guard: consecutive price change exceeds threshold (sequencing attack)");
+                fail(&env, FailureReason::ConsecutivePriceChangeExceedsThreshold);
             }
 
             if current_time > snap.oracle_timestamp + config.max_oracle_update_gap_seconds {
@@ -375,7 +392,7 @@ impl FlashLoanGuardContract {
                         current_time,
                     },
                 );
-                panic!("flash-loan guard: oracle update gap exceeded (delayed update detected)");
+                fail(&env, FailureReason::OracleUpdateGapExceeded);
             }
 
             // Circuit breaker: count consecutive violations from history
@@ -404,7 +421,7 @@ impl FlashLoanGuardContract {
                     (symbol_short!("CbTrip"),),
                     (price_diff, violations, current_ledger),
                 );
-                panic!("flash-loan guard: circuit breaker tripped");
+                fail(&env, FailureReason::CircuitBreakerTripped);
             } else {
                 env.storage().instance().set(
                     &DataKey::CircuitBreaker,
@@ -422,7 +439,9 @@ impl FlashLoanGuardContract {
         let mut new_history = Vec::from_array(&env, []);
         if price_history.len() >= 10 {
             for i in 1..price_history.len() {
-                new_history.push_back(price_history.get(i).unwrap().clone());
+                new_history.push_back(
+                    unwrap_or_fail(&env, price_history.get(i), FailureReason::StorageValueMissing).clone(),
+                );
             }
         } else {
             for item in price_history.iter() {
@@ -462,19 +481,23 @@ impl FlashLoanGuardContract {
     }
 
     pub fn assert_price_safe(env: Env) -> i128 {
-        let config: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         let current_time = env.ledger().timestamp();
 
         let snap: PriceSnapshot = env
             .storage()
             .instance()
             .get(&DataKey::PriceSnapshot)
-            .expect("no price snapshot: call record_snapshot first");
+            .unwrap_or_else(|| fail(&env, FailureReason::NotFound));
 
         let current_ledger = env.ledger().sequence();
 
         if current_ledger == snap.ledger {
-            panic!("flash-loan guard: price snapshot taken in same ledger");
+            fail(&env, FailureReason::SnapshotSameLedger);
         }
 
         if current_time > snap.oracle_timestamp + config.max_oracle_staleness_seconds {
@@ -488,7 +511,7 @@ impl FlashLoanGuardContract {
                     current_time,
                 },
             );
-            panic!("flash-loan guard: oracle data stale during assert_price_safe");
+            fail(&env, FailureReason::OracleDataStale);
         }
 
         if current_ledger > snap.ledger + (config.max_oracle_update_gap_seconds / 5) as u32 {
@@ -502,7 +525,7 @@ impl FlashLoanGuardContract {
                     current_ledger,
                 },
             );
-            panic!("flash-loan guard: snapshot too old (ledger timing edge case)");
+            fail(&env, FailureReason::SnapshotTooOld);
         }
 
         let oracle = PriceOracleClient::new(&env, &config.oracle);
@@ -516,9 +539,9 @@ impl FlashLoanGuardContract {
 
         let deviation_bps = diff
             .checked_mul(10_000)
-            .expect("overflow")
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError))
             .checked_div(snap.price)
-            .expect("div zero");
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
 
         if deviation_bps > config.max_intra_ledger_deviation_bps {
             env.events().publish(
@@ -532,7 +555,7 @@ impl FlashLoanGuardContract {
                     deviation_bps,
                 },
             );
-            panic!("flash-loan guard: price deviation exceeds threshold");
+            fail(&env, FailureReason::PriceDeviationExceedsThreshold);
         }
 
         env.events().publish(
@@ -555,7 +578,10 @@ impl FlashLoanGuardContract {
     }
 
     pub fn get_config(env: Env) -> Config {
-        env.storage().instance().get(&DataKey::Config).expect("not initialized")
+        env.storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized))
     }
 
     pub fn get_circuit_breaker(env: Env) -> CircuitBreakerState {

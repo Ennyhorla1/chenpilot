@@ -3,6 +3,7 @@ import { Server as HTTPServer } from "http";
 import logger from "../config/logger";
 import { EventEmitter } from "events";
 import { evaluateRealtimeAbusePolicy } from "../Security";
+import { propagateSocketContext } from "../observability/socketContext";
 
 /**
  * Represents a connected client with metadata
@@ -244,7 +245,6 @@ export class SocketManager {
 
           this.connectedClients.set(socket.id, client);
 
-          // Track user's sockets
           if (!this.userSockets.has(payload.userId)) {
             this.userSockets.set(payload.userId, new Set());
           }
@@ -252,8 +252,7 @@ export class SocketManager {
 
           socket.join(`user:${payload.userId}`);
           socket.emit("authenticated", { success: true, userId: payload.userId });
-          
-          // Audit log connection
+
           await auditLogService.log({
             userId: payload.userId,
             action: AuditAction.SENSITIVE_DATA_ACCESS,
@@ -270,8 +269,9 @@ export class SocketManager {
 
           logger.info(`Client ${socket.id} authenticated as user ${payload.userId}`);
 
-          // Now set up other listeners AFTER authentication
-          this.setupAuthenticatedListeners(socket, client);
+          propagateSocketContext(socket, payload.userId, () => {
+            this.setupAuthenticatedListeners(socket, client);
+          });
         } catch (error) {
           logger.warn(`Authentication failed for client ${socket.id}:`, { error: (error as Error).message });
           socket.emit("error", { message: "Authentication failed. Invalid token." });
