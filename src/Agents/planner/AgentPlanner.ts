@@ -174,7 +174,8 @@ Output JSON format:
       totalSteps: steps.length,
       estimatedDuration: steps.length * 3000,
       riskLevel,
-      requiresApproval: riskLevel === "high" || steps.some(s => s.requiresApproval),
+      requiresApproval:
+        riskLevel === "high" || steps.some((s) => s.requiresApproval),
       summary: `Plan for "${context.userInput}"`,
     };
   }
@@ -211,7 +212,13 @@ Output JSON format:
 
     // Map composite score to the 3-level scale used by ExecutionPlan
     return RiskEngine.toPreferenceTier(
-      maxScore >= 70 ? "critical" : maxScore >= 50 ? "high" : maxScore >= 30 ? "medium" : "low"
+      maxScore >= 70
+        ? "critical"
+        : maxScore >= 50
+          ? "high"
+          : maxScore >= 30
+            ? "medium"
+            : "low"
     );
   }
 

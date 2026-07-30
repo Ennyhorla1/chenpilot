@@ -33,7 +33,9 @@ export class ToolRegistry {
 
     const versionMap = this.tools.get(name)!;
     if (versionMap.has(version)) {
-      throw new Error(`Tool '${name}' version '${version}' is already registered`);
+      throw new Error(
+        `Tool '${name}' version '${version}' is already registered`
+      );
     }
 
     versionMap.set(version, {
@@ -137,7 +139,7 @@ export class ToolRegistry {
    */
   getAllTools(includeAllVersions = false): ToolDefinition[] {
     const allTools: ToolDefinition[] = [];
-    
+
     for (const [name, versionMap] of this.tools.entries()) {
       if (includeAllVersions) {
         for (const entry of versionMap.values()) {
@@ -148,7 +150,7 @@ export class ToolRegistry {
         if (latest) allTools.push(latest);
       }
     }
-    
+
     return allTools;
   }
 
@@ -200,7 +202,9 @@ export class ToolRegistry {
     }
 
     if (!entry || !entry.enabled) {
-      throw new ToolExecutionError(`Tool '${actualToolName}${version ? "@" + version : ""}' not found or disabled`);
+      throw new ToolExecutionError(
+        `Tool '${actualToolName}${version ? "@" + version : ""}' not found or disabled`
+      );
     }
 
     const tool = entry.definition;
@@ -225,11 +229,11 @@ export class ToolRegistry {
     }
 
     const timeout = timeoutMs || config.agent.timeouts.toolExecution;
-    logger.info("Governed tool execution starting", { 
-      toolName: actualToolName, 
-      version: entry.version, 
-      userId, 
-      riskLevel: tool.metadata.riskLevel 
+    logger.info("Governed tool execution starting", {
+      toolName: actualToolName,
+      version: entry.version,
+      userId,
+      riskLevel: tool.metadata.riskLevel,
     });
 
     try {
@@ -254,7 +258,10 @@ export class ToolRegistry {
   /**
    * Authorize user for tool execution
    */
-  private async authorizeTool(tool: ToolDefinition, userId: string): Promise<void> {
+  private async authorizeTool(
+    tool: ToolDefinition,
+    userId: string
+  ): Promise<void> {
     const requiredPermissions = tool.metadata.permissions;
     if (!requiredPermissions || requiredPermissions.length === 0) {
       return;
@@ -264,17 +271,27 @@ export class ToolRegistry {
     const user = await userRepo.findOne({ where: { userId } });
 
     if (!user) {
-      throw new ToolExecutionError(`User ${userId} not found for authorization`);
+      throw new ToolExecutionError(
+        `User ${userId} not found for authorization`
+      );
     }
 
     const userRole = user.role as UserRole;
-    
+
     for (const permission of requiredPermissions) {
       if (permission === "admin" && userRole !== UserRole.ADMIN) {
-        throw new ToolExecutionError(`Insufficient permissions for tool ${tool.metadata.name}: requires admin`);
+        throw new ToolExecutionError(
+          `Insufficient permissions for tool ${tool.metadata.name}: requires admin`
+        );
       }
-      if (permission === "moderator" && (userRole !== UserRole.MODERATOR && userRole !== UserRole.ADMIN)) {
-        throw new ToolExecutionError(`Insufficient permissions for tool ${tool.metadata.name}: requires moderator`);
+      if (
+        permission === "moderator" &&
+        userRole !== UserRole.MODERATOR &&
+        userRole !== UserRole.ADMIN
+      ) {
+        throw new ToolExecutionError(
+          `Insufficient permissions for tool ${tool.metadata.name}: requires moderator`
+        );
       }
     }
   }
@@ -334,25 +351,29 @@ export class ToolRegistry {
       errors.push("Registry is empty");
     }
 
-    tools.forEach(tool => {
+    tools.forEach((tool) => {
       try {
         this.validateToolMetadata(tool.metadata);
       } catch (err) {
-        errors.push(`Metadata validation failed for ${tool.metadata.name}: ${err instanceof Error ? err.message : "Unknown error"}`);
+        errors.push(
+          `Metadata validation failed for ${tool.metadata.name}: ${err instanceof Error ? err.message : "Unknown error"}`
+        );
       }
 
       // Check for deprecation loops or missing replacements
       if (tool.metadata.deprecated && tool.metadata.replacementTool) {
         const replacement = this.getTool(tool.metadata.replacementTool);
         if (!replacement) {
-          errors.push(`Tool ${tool.metadata.name} refers to missing replacement: ${tool.metadata.replacementTool}`);
+          errors.push(
+            `Tool ${tool.metadata.name} refers to missing replacement: ${tool.metadata.replacementTool}`
+          );
         }
       }
     });
 
     return {
       valid: errors.length === 0,
-      errors
+      errors,
     };
   }
 }

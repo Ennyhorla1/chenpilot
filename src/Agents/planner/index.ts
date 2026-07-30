@@ -9,7 +9,10 @@ export { PlanExecutor, planExecutor } from "./PlanExecutor";
 export { parseSorobanIntent } from "./sorobanIntent";
 export { planHashService } from "./planHash";
 export { DurableExecutor, durableExecutor } from "./DurableExecutor";
-export { DurableRecoveryService, durableRecoveryService } from "./DurableRecoveryService";
+export {
+  DurableRecoveryService,
+  durableRecoveryService,
+} from "./DurableRecoveryService";
 export { ExecutionStatus } from "./DurableExecution.entity";
 export { StepStatus } from "./DurableStep.entity";
 

@@ -1,9 +1,5 @@
 export type ParameterType =
-  | "string"
-  | "number"
-  | "boolean"
-  | "object"
-  | "array";
+  "string" | "number" | "boolean" | "object" | "array";
 
 export interface ParameterDefinition {
   type: ParameterType;

@@ -49,7 +49,7 @@ export class PlanExecutor {
     options: ExecutionOptions = {}
   ): Promise<ExecutionResult> {
     const startTime = Date.now();
-    
+
     logger.info("Starting plan execution", {
       planId: plan.planId,
       userId,
