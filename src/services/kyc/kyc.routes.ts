@@ -1,3 +1,20 @@
+/**
+ * KYC Route Rate Limiting
+ *
+ * The POST /api/kyc/submit endpoint has a dedicated, stricter rate limiter
+ * (RateLimiterService.createKycLimiter) distinct from the general API limiter.
+ *
+ * Configuration:
+ *   Window:  1 hour
+ *   Limit:   3 requests per window
+ *   Key:     req.user?.id (authenticated) | req.ip (fallback)
+ *
+ * Rationale: KYC submissions handle PII and invoke third-party KYC provider
+ * APIs that charge per-call. The strict limit prevents abuse, credential
+ * stuffing, and runaway costs from a single user or IP.
+ *
+ * The general API limiter (100 req/min per IP) also applies on top.
+ */
 import { Router, Request, Response, NextFunction } from "express";
 import RateLimiterService from "../../Gateway/middleware/rateLimiter.service";
 import { kycService } from "./index";
@@ -7,8 +24,6 @@ import logger from "../../config/logger";
 
 const router = Router();
 
-// Dedicated rate limiter for KYC submissions (stricter than general)
-// 3 requests per hour per user to prevent abuse and excessive API calls to KYC providers
 const kycRateLimiter = RateLimiterService.createKycLimiter();
 
 /**

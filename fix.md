@@ -1,13 +1,13 @@
-Redact KYC PII fields in structured logs
+Add rate limiting specifically to KYC submission endpoints
 Repo Avatar
 gear5labs/chenpilot
-The README states the logging system automatically redacts "Passwords, tokens, and private keys." It doesn't mention PII fields that would be present in KYC flows (full name, date of birth, document numbers, addresses). If the redaction allowlist/denylist is keyword-based, KYC-specific fields may not be covered.
+src/services/kyc and KYC_PROVIDER env var indicate KYC integration exists. KYC submission endpoints typically handle PII and third-party API calls with their own rate limits (and cost per call) — these should have tighter, dedicated rate limiting distinct from general API rate limits to prevent abuse (e.g., spamming a paid KYC provider).
 
 Proposed Work
 
-Audit src/config/logger (or equivalent) redaction rules against all fields passed through src/services/kyc
-Extend the redaction list to cover KYC PII fields explicitly
+Audit whether KYC endpoints currently share the general rate limiter or have dedicated limits
+Add a stricter per-user/per-IP limit scoped to KYC submission routes
 Acceptance Criteria
 
- KYC PII fields confirmed redacted in a test that logs a sample KYC payload and asserts no PII appears in output
- src/config/LOGGING.md updated with the full redaction field list
+ KYC endpoints have documented, dedicated rate limits
+ Test confirming limit enforcement
