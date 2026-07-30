@@ -2,6 +2,7 @@
 use soroban_sdk::{
     contract, contractimpl, contracttype, Address, Env, token, symbol_short,
 };
+use contract_failure::{fail, FailureReason};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -92,10 +93,10 @@ impl FeeDistributionContract {
         ai_agent_bps: u32,
     ) {
         if env.storage().instance().has(&DataKey::Config) {
-            panic!("Already initialized");
+            fail(&env, FailureReason::AlreadyInitialized);
         }
         if treasury_bps + ai_agent_bps > 10_000 {
-            panic!("Invalid basis points: sum exceeds 10000");
+            fail(&env, FailureReason::InvalidBasisPoints);
         }
         env.storage().instance().set(&DataKey::Config, &Config { admin: admin.clone(), treasury: treasury.clone(), ai_agent_pool: ai_agent_pool.clone(), lp_pool: lp_pool.clone(), treasury_bps, ai_agent_bps });
         env.storage().instance().set(&DataKey::DistributionNonce, &0u32);
@@ -117,10 +118,14 @@ impl FeeDistributionContract {
     }
 
     pub fn update_config(env: Env, config: Config) {
-        let current_config: Config = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
+        let current_config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         current_config.admin.require_auth();
         if config.treasury_bps + config.ai_agent_bps > 10_000 {
-            panic!("Invalid basis points: sum exceeds 10000");
+            fail(&env, FailureReason::InvalidBasisPoints);
         }
         env.storage().instance().set(&DataKey::Config, &config);
 
@@ -142,12 +147,28 @@ impl FeeDistributionContract {
 
     pub fn distribute(env: Env, token_addr: Address, from: Address, amount: i128) -> DistributionRecord {
         if amount <= 0 {
-            panic!("amount must be positive");
+            fail(&env, FailureReason::AmountNotPositive);
         }
-        let config: Config = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
-        let treasury_share = amount.checked_mul(config.treasury_bps as i128).expect("Multiplication overflow").checked_div(10_000).expect("Division by zero");
-        let ai_agent_share = amount.checked_mul(config.ai_agent_bps as i128).expect("Multiplication overflow").checked_div(10_000).expect("Division by zero");
-        let lp_share = amount.checked_sub(treasury_share).expect("Subtraction underflow").checked_sub(ai_agent_share).expect("Subtraction underflow");
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
+        let treasury_share = amount
+            .checked_mul(config.treasury_bps as i128)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError))
+            .checked_div(10_000)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
+        let ai_agent_share = amount
+            .checked_mul(config.ai_agent_bps as i128)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError))
+            .checked_div(10_000)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
+        let lp_share = amount
+            .checked_sub(treasury_share)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError))
+            .checked_sub(ai_agent_share)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
         let client = token::Client::new(&env, &token_addr);
 
         if treasury_share > 0 {
@@ -187,7 +208,10 @@ impl FeeDistributionContract {
     }
 
     pub fn get_config(env: Env) -> Config {
-        env.storage().instance().get(&DataKey::Config).expect("Not initialized")
+        env.storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized))
     }
 }
 

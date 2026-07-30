@@ -1,5 +1,6 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Env, Address};
+use contract_failure::{fail, FailureReason};
 
 /// The three roles this contract manages.
 /// Stored per-address — an address can hold multiple roles.
@@ -73,7 +74,7 @@ impl RbacContract {
     /// One-time setup — sets the super-admin.
     pub fn init(env: Env, admin: Address) {
         if env.storage().instance().has(&DataKey::SuperAdmin) {
-            panic!("already initialized");
+            fail(&env, FailureReason::AlreadyInitialized);
         }
         env.storage().instance().set(&DataKey::SuperAdmin, &admin);
 
@@ -190,7 +191,7 @@ impl RbacContract {
         env.storage()
             .instance()
             .get(&DataKey::SuperAdmin)
-            .expect("not initialized")
+            .unwrap_or_else(|| fail(env, FailureReason::NotInitialized))
     }
 
     fn assert_role(env: &Env, addr: &Address, role: Role) {
@@ -200,7 +201,7 @@ impl RbacContract {
             .get::<DataKey, bool>(&DataKey::HasRole(addr.clone(), role))
             .unwrap_or(false);
         if !has {
-            panic!("unauthorized: missing role");
+            fail(env, FailureReason::Unauthorized);
         }
     }
 }
