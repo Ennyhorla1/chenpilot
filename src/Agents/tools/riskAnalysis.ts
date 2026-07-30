@@ -21,6 +21,9 @@ const STELLAR_ASSETS: Record<string, StellarSdk.Asset> = {
   ),
 };
 
+/**
+ *
+ */
 export class RiskAnalysisTool extends BaseTool<RiskAnalysisPayload> {
   metadata: ToolMetadata = {
     name: "risk_analysis_tool",
@@ -56,6 +59,9 @@ export class RiskAnalysisTool extends BaseTool<RiskAnalysisPayload> {
     permissions: [],
   };
 
+  /**
+   *
+   */
   async execute(
     payload: RiskAnalysisPayload,
     userId: string

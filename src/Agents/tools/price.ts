@@ -13,6 +13,9 @@ interface PricePayload extends Record<string, unknown> {
   limit?: number;
 }
 
+/**
+ *
+ */
 export class PriceTool extends BaseTool<PricePayload> {
   metadata: ToolMetadata = {
     name: "price_tool",
@@ -70,6 +73,9 @@ export class PriceTool extends BaseTool<PricePayload> {
     permissions: [],
   };
 
+  /**
+   *
+   */
   async execute(payload: PricePayload): Promise<ToolResult> {
     try {
       switch (payload.operation) {
@@ -98,6 +104,9 @@ export class PriceTool extends BaseTool<PricePayload> {
     }
   }
 
+  /**
+   *
+   */
   private async getPrice(payload: PricePayload): Promise<ToolResult> {
     if (!payload.from || !payload.to) {
       return {
@@ -125,6 +134,9 @@ export class PriceTool extends BaseTool<PricePayload> {
     };
   }
 
+  /**
+   *
+   */
   private async getPrices(payload: PricePayload): Promise<ToolResult> {
     if (!payload.pairs || !Array.isArray(payload.pairs)) {
       return {
@@ -147,6 +159,9 @@ export class PriceTool extends BaseTool<PricePayload> {
     };
   }
 
+  /**
+   *
+   */
   private async getOrderbook(payload: PricePayload): Promise<ToolResult> {
     if (!payload.from || !payload.to) {
       return {
@@ -180,6 +195,9 @@ export class PriceTool extends BaseTool<PricePayload> {
     };
   }
 
+  /**
+   *
+   */
   private async getCacheStats(): Promise<ToolResult> {
     const stats = await priceCacheService.getStats();
     const healthy = await priceCacheService.healthCheck();

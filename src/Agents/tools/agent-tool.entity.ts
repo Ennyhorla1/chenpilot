@@ -8,6 +8,9 @@ import {
   Index,
 } from "typeorm";
 
+/**
+ *
+ */
 @Entity()
 export class AgentTool {
   @PrimaryGeneratedColumn("uuid")

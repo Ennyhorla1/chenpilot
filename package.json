@@ -84,6 +84,7 @@
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.54.0",
     "eslint": "^9.39.2",
+    "eslint-plugin-jsdoc": "^63.3.2",
     "fast-check": "^4.5.3",
     "globals": "^17.2.0",
     "husky": "^9.1.7",

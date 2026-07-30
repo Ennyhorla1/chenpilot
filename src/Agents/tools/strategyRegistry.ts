@@ -14,6 +14,9 @@ interface StrategyRegistryPayload extends Record<string, unknown> {
 
 const POOL_ID_REGEX = /^[0-9a-f]{64}$/i;
 
+/**
+ *
+ */
 export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
   metadata: ToolMetadata = {
     name: "strategy_registry",
@@ -51,6 +54,9 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     permissions: ["user"],
   };
 
+  /**
+   *
+   */
   validate(payload: StrategyRegistryPayload): {
     valid: boolean;
     errors: string[];
@@ -73,6 +79,9 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     return { valid: errors.length === 0, errors };
   }
 
+  /**
+   *
+   */
   async execute(payload: StrategyRegistryPayload): Promise<ToolResult> {
     const validation = this.validate(payload);
     if (!validation.valid) {
@@ -181,6 +190,9 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     }
   }
 
+  /**
+   *
+   */
   private evaluateOffChainPolicy(
     poolId?: string,
     aiAgent?: string
@@ -194,6 +206,9 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     return { allowed: true, reason: "Policy checks passed" };
   }
 
+  /**
+   *
+   */
   private async readCurrentStrategy(
     server: StellarSdk.SorobanRpc.Server,
     contractId: string
@@ -202,6 +217,9 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     return `strategy:${contractId.slice(0, 12)}`;
   }
 
+  /**
+   *
+   */
   private async auditAction(
     action: string,
     poolId: string | undefined,

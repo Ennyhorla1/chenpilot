@@ -40,6 +40,9 @@ interface TransferPayload {
   token?: "STRK" | "ETH";
 }
 
+/**
+ *
+ */
 export class WalletTool extends BaseTool {
   metadata: ToolMetadata = {
     name: "wallet_tool",
@@ -84,6 +87,9 @@ export class WalletTool extends BaseTool {
 
   private provider: RpcProvider;
   private contactService = container.resolve(ContactService);
+  /**
+   *
+   */
   constructor() {
     super();
     this.provider = new RpcProvider({
@@ -91,12 +97,18 @@ export class WalletTool extends BaseTool {
     });
   }
 
+  /**
+   *
+   */
   private getAccount(userId: string): AccountData {
     const account = accountSecretStore.getAccountByUserId<AccountData>(userId);
     if (!account) throw new Error(`Account not found: ${userId}`);
     return account;
   }
 
+  /**
+   *
+   */
   private getStarkAccount(userId: string): Account {
     const accountData = this.getAccount(userId);
 
@@ -107,6 +119,9 @@ export class WalletTool extends BaseTool {
     );
   }
 
+  /**
+   *
+   */
   async execute(
     payload: Record<string, unknown>,
     userId: string
@@ -128,6 +143,9 @@ export class WalletTool extends BaseTool {
     }
   }
 
+  /**
+   *
+   */
   private async getBalance(
     payload: BalancePayload,
     userId: string
@@ -171,6 +189,9 @@ export class WalletTool extends BaseTool {
     }
   }
 
+  /**
+   *
+   */
   private async transfer(
     payload: TransferPayload,
     userId: string
@@ -228,6 +249,9 @@ export class WalletTool extends BaseTool {
     }
   }
 
+  /**
+   *
+   */
   private async getWalletAddress(userId: string): Promise<ToolResult> {
     try {
       const account = this.getAccount(userId);

@@ -128,6 +128,9 @@ export class SorobanContractStateTool extends BaseTool<ContractStatePayload> {
     permissions: [],
   };
 
+  /**
+   *
+   */
   async execute(
     payload: ContractStatePayload,
     userId: string
