@@ -3,6 +3,10 @@ import config from "../config/config";
 import { memoryStore } from "./memory/memory";
 import logger from "../config/logger";
 import { withTimeout, TimeoutError } from "../utils/timeout";
+import {
+  LLMTokenUsage,
+  recordLLMUsage,
+} from "../observability/agentPlanMetrics";
 
 const client = new Anthropic({
   apiKey: config.apiKey,
@@ -17,7 +21,6 @@ export class AgentLLM {
     timeoutMs?: number | string,
     traceId?: string
   ): Promise<unknown> {
-    // If timeoutMs is actually a traceId (string), swap the parameters
     const actualTimeoutMs =
       typeof timeoutMs === "string" ? undefined : timeoutMs;
     const actualTraceId =
@@ -25,8 +28,6 @@ export class AgentLLM {
 
     const timeout = actualTimeoutMs || config.agent.timeouts.llmCall;
     const memoryContext = memoryStore.get(agentId).join("\n");
-    // Delimit user input with XML-style tags to prevent prompt injection.
-    // The model is instructed to treat everything inside <user_input> as data only.
     const safeUserInput = userInput.replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const fullPrompt = `${
       memoryContext ? "Previous context:\n" + memoryContext + "\n\n" : ""
@@ -62,20 +63,39 @@ export class AgentLLM {
         }
       );
 
+      const usage: LLMTokenUsage = {
+        inputTokens: message.usage?.input_tokens || 0,
+        outputTokens: message.usage?.output_tokens || 0,
+        totalTokens:
+          (message.usage?.input_tokens || 0) +
+          (message.usage?.output_tokens || 0),
+        provider: "anthropic",
+        model: "claude-3-5-haiku-20241022",
+      };
+
+      recordLLMUsage(actualTraceId || agentId, usage);
+
       const content =
         message.content[0].type === "text" ? message.content[0].text : "{}";
 
       if (asJson) {
         try {
-          const parsed = JSON.parse(content);
+          const parsed = JSON.parse(content) as unknown;
+          if (parsed && typeof parsed === "object") {
+            Object.defineProperty(parsed, "llmUsage", {
+              value: usage,
+              enumerable: false,
+              configurable: true,
+            });
+          }
           return parsed;
         } catch (err) {
           logger.error("JSON parse error", { error: err, rawContent: content });
           return {};
         }
-      } else {
-        return content;
       }
+
+      return content;
     } catch (error) {
       if (error instanceof TimeoutError) {
         logger.error("LLM call timed out", {
