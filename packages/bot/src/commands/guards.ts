@@ -1,9 +1,9 @@
 /**
  * Command Guards
  *
- * Stateless validation functions that run before execute().
- * Each guard receives the command definition and the normalised context and
- * returns a GuardResult — the framework short-circuits on the first failure.
+ * Stateless validation functions that run before execute(). Each guard receives the
+ * command definition and the normalised context and returns a GuardResult — the
+ * framework short-circuits on the first failure.
  *
  * Guards are intentionally pure and side-effect-free so they are trivially
  * unit-testable.
@@ -11,6 +11,7 @@
 
 import type { CommandContext, CommandHandler, GuardResult } from "./types";
 import type { RateLimiter } from "../rateLimiter";
+import { permissionMiddleware } from "../permissions/middleware.js";
 
 // ─── DM-only guard ────────────────────────────────────────────────────────────
 
@@ -129,4 +130,17 @@ export function floodGuard(
 
   lastCommandTime.set(userId, now);
   return { passed: true };
+}
+
+// ─── Permission matrix guard ───────────────────────────────────────────────────
+
+/**
+ * Checks the unified permission matrix for command access.
+ * This guard integrates backend roles, platform roles, and contract capabilities.
+ */
+export async function permissionMatrixGuard(
+  handler: CommandHandler,
+  ctx: CommandContext
+): Promise<GuardResult> {
+  return await permissionMiddleware.permissionGuard(handler, ctx);
 }

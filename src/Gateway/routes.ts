@@ -19,6 +19,7 @@ import {
 import logger from "../config/logger";
 import authRoutes from "../Auth/auth.routes";
 import userPreferencesRoutes from "../Auth/userPreferences.routes";
+import botIdentityRoutes from "../Auth/botIdentity.routes";
 import dataExportRoutes from "../services/dataExport.routes";
 import contractMetadataRoutes from "../services/contracts/contractMetadata.routes";
 import horizonProxyRoutes from "./horizonProxy.routes";
@@ -51,6 +52,9 @@ router.use("/auth", authExtraRoutes);
 
 // Mount user preferences routes
 router.use("/user/preferences", userPreferencesRoutes);
+
+// Mount bot identity routes
+router.use("/bot-identity", botIdentityRoutes);
 
 // Mount data export routes
 router.use("/export", dataExportRoutes);
