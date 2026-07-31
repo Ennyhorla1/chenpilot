@@ -112,13 +112,13 @@ export class SafeBackendClient implements BackendClient {
   /**
    * Execute workflow with retry logic and circuit breaker
    */
-  async executeWorkflow<TState>(
+  async executeWorkflow<TState, TOutput = unknown>(
     workflow: string,
     state: TState,
     step: string
-  ): Promise<any> {
+  ): Promise<TOutput> {
     const endpoint = `${this.baseUrl}/workflows/${workflow}/${step}`;
-    
+
     if (this.isCircuitOpen(endpoint)) {
       throw new CommandError({
         code: 'BACKEND_ERROR',
@@ -131,7 +131,7 @@ export class SafeBackendClient implements BackendClient {
 
     for (let attempt = 0; attempt < this.retryConfig.maxAttempts; attempt++) {
       try {
-        const result = await this.fetchWithTimeout<any>(
+        const result = await this.fetchWithTimeout<TOutput>(
           endpoint,
           {
             method: 'POST',

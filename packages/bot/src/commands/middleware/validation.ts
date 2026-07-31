@@ -11,8 +11,17 @@ import {
   ErrorCode,
 } from '../types.js';
 
+/**
+ * Structural subset of a Zod (or Zod-like) schema. Only `.parse()` is used,
+ * so callers can pass a real Zod schema, a hand-rolled validator, or any
+ * object shaped like one without this package depending on `zod` directly.
+ */
+export interface ParseableSchema<TInput> {
+  parse(input: unknown): TInput;
+}
+
 export function createValidationMiddleware<TInput>(
-  schema: any // Zod schema or similar
+  schema?: ParseableSchema<TInput>
 ): CommandMiddleware<TInput> {
   return async (context: TypedCommandContext<TInput>, next) => {
     try {

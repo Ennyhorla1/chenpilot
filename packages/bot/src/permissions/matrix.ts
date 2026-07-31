@@ -610,6 +610,17 @@ export class PermissionMatrix {
   }
 
   /**
+   * Determine a user's permission level from context without running a full
+   * command permission check. Public wrapper around the internal resolution
+   * logic so callers that only need the level (e.g. capability checks
+   * outside the checkPermission() flow) don't have to reach past
+   * encapsulation to get it.
+   */
+  getUserPermissionLevel(context: PermissionContext): PermissionLevel {
+    return this.determineUserPermissionLevel(context);
+  }
+
+  /**
    * Determine user's permission level from context
    */
   private determineUserPermissionLevel(context: PermissionContext): PermissionLevel {

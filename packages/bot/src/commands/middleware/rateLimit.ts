@@ -16,14 +16,14 @@ interface RateLimitEntry {
   resetTime: number;
 }
 
-export function createRateLimitMiddleware(
+export function createRateLimitMiddleware<TInput>(
   maxRequests: number,
   windowMs: number,
   skipFailedRequests = false
-): CommandMiddleware<any> {
+): CommandMiddleware<TInput> {
   const rateLimits = new Map<string, RateLimitEntry>();
 
-  return async (context: TypedCommandContext<any>, next) => {
+  return async (context: TypedCommandContext<TInput>, next) => {
     const now = Date.now();
     const userId = context.userId;
     const entry = rateLimits.get(userId);

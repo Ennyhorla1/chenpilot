@@ -8,6 +8,11 @@ import {
   PermissionMatrix,
   PermissionContext,
   PermissionCheckResult,
+  PermissionMatrixEntry,
+  PermissionLevel,
+  PermissionLevelHierarchy,
+  ContractCapability,
+  CapabilityPermissionRequirements,
   DefaultPermissionMatrix,
 } from './matrix.js';
 import { BackendPermissionIntegration } from './backendIntegration.js';
@@ -20,6 +25,19 @@ export interface PermissionMiddlewareConfig {
   permissionMatrix?: PermissionMatrix;
   backendIntegration?: BackendPermissionIntegration;
   platformIntegration?: PlatformPermissionIntegration;
+}
+
+/**
+ * Narrow an opaque adapter payload down to `{ guildId: string }` without a
+ * blanket cast. `ctx.raw` is intentionally `unknown` — see CommandContext.
+ */
+function isRecordWithGuildId(value: unknown): value is { guildId: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'guildId' in value &&
+    typeof (value as { guildId: unknown }).guildId === 'string'
+  );
 }
 
 /**
@@ -95,11 +113,13 @@ export class PermissionMiddleware {
 
     // Fetch platform roles if available
     let platformRoles = ctx.roles || [];
-    let guildId = undefined;
+    let guildId: string | undefined;
 
-    // Try to extract guildId from raw context if available
-    if (ctx.raw && typeof ctx.raw === 'object') {
-      guildId = (ctx.raw as any).guildId;
+    // Try to extract guildId from raw context if available. `ctx.raw` is
+    // intentionally `unknown` (it's an opaque, adapter-specific payload —
+    // see CommandContext) so we narrow it defensively rather than casting.
+    if (isRecordWithGuildId(ctx.raw)) {
+      guildId = ctx.raw.guildId;
     }
 
     if (this.platformIntegration) {
@@ -186,14 +206,11 @@ export class PermissionMiddleware {
    */
   async hasPermissionLevel(
     ctx: CommandContext,
-    requiredLevel: string
+    requiredLevel: PermissionLevel
   ): Promise<boolean> {
     const permissionContext = await this.createPermissionContext(ctx);
-    // Use the permission matrix's internal method
-    const userLevel = (this.permissionMatrix as any).determineUserPermissionLevel(permissionContext);
-    const required = (this.permissionMatrix as any).PermissionLevelHierarchy[requiredLevel];
-    const current = (this.permissionMatrix as any).PermissionLevelHierarchy[userLevel];
-    return current >= required;
+    const userLevel = this.permissionMatrix.getUserPermissionLevel(permissionContext);
+    return PermissionLevelHierarchy[userLevel] >= PermissionLevelHierarchy[requiredLevel];
   }
 
   /**
@@ -201,20 +218,18 @@ export class PermissionMiddleware {
    */
   async hasContractCapability(
     ctx: CommandContext,
-    capability: string
+    capability: ContractCapability
   ): Promise<boolean> {
     const permissionContext = await this.createPermissionContext(ctx);
-    const userLevel = (this.permissionMatrix as any).determineUserPermissionLevel(permissionContext);
-    const requiredLevel = (this.permissionMatrix as any).CapabilityPermissionRequirements[capability];
-    const required = (this.permissionMatrix as any).PermissionLevelHierarchy[requiredLevel];
-    const current = (this.permissionMatrix as any).PermissionLevelHierarchy[userLevel];
-    return current >= required;
+    const userLevel = this.permissionMatrix.getUserPermissionLevel(permissionContext);
+    const requiredLevel = CapabilityPermissionRequirements[capability];
+    return PermissionLevelHierarchy[userLevel] >= PermissionLevelHierarchy[requiredLevel];
   }
 
   /**
    * Add permission matrix entry
    */
-  addPermissionEntry(entry: any): void {
+  addPermissionEntry(entry: PermissionMatrixEntry): void {
     this.permissionMatrix.setEntry(entry);
   }
 
@@ -228,7 +243,7 @@ export class PermissionMiddleware {
   /**
    * Get all permission entries
    */
-  getAllEntries(): any[] {
+  getAllEntries(): PermissionMatrixEntry[] {
     return this.permissionMatrix.getAllEntries();
   }
 }

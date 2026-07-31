@@ -10,6 +10,7 @@ import {
   CommandMiddleware,
   CommandError,
   ErrorCode,
+  Permission,
 } from '../types.js';
 
 /**
@@ -23,7 +24,7 @@ export abstract class BaseCommandContract<TInput, TOutput> implements CommandCon
   abstract handler: (context: TypedCommandContext<TInput>) => Promise<TypedCommandResult<TOutput>>;
 
   middleware: CommandMiddleware<TInput>[] = [];
-  permissions: any[] = [];
+  permissions: Permission[] = [];
   rateLimit?: { maxRequests: number; windowMs: number };
 
   /**
@@ -37,7 +38,7 @@ export abstract class BaseCommandContract<TInput, TOutput> implements CommandCon
   /**
    * Add permission requirement
    */
-  requirePermission(permission: any): this {
+  requirePermission(permission: Permission): this {
     this.permissions.push(permission);
     return this;
   }
@@ -130,7 +131,7 @@ export class CommandContractBuilder<TInput, TOutput> {
     return this;
   }
 
-  permissions(perms: any[]): this {
+  permissions(perms: Permission[]): this {
     this.contract.permissions = perms;
     return this;
   }

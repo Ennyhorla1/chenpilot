@@ -25,6 +25,24 @@ export interface BackendUserData {
 }
 
 /**
+ * Shape of the `get_user` backend command response. Fields are optional
+ * because the backend contract isn't independently validated here — see
+ * fetchUserData()'s defensive `?? ` fallbacks below, which mirror the
+ * `|| default` behaviour this replaces.
+ */
+interface GetUserResponse {
+  success?: boolean;
+  data?: {
+    id?: string;
+    role?: BackendRole;
+    isEmailVerified?: boolean;
+    isDeployed?: boolean;
+    isFunded?: boolean;
+    address?: string;
+  };
+}
+
+/**
  * Backend integration service
  */
 export class BackendPermissionIntegration {
@@ -64,18 +82,17 @@ export class BackendPermissionIntegration {
 
     try {
       // Use executeCommand to fetch user data
-      const response = await this.backendClient.executeCommand(
-        'get_user',
-        { userId },
-        userId
-      ) as any;
+      const response = await this.backendClient.executeCommand<
+        { userId: string },
+        GetUserResponse
+      >('get_user', { userId }, userId);
 
       if (!response || !response.success || !response.data) {
         return null;
       }
 
       const userData: BackendUserData = {
-        userId: response.data.id,
+        userId: response.data.id ?? userId,
         role: response.data.role || BackendRole.USER,
         isEmailVerified: response.data.isEmailVerified || false,
         isWalletDeployed: response.data.isDeployed || false,
