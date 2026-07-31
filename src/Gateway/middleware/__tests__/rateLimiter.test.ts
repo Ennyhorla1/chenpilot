@@ -85,6 +85,43 @@ describe("RateLimiterService", () => {
       const limiter = RateLimiterService.createKycLimiter();
       expect(limiter).toBeDefined();
     });
+
+    it("should enforce 3 requests per hour per user", async () => {
+      const limiter = RateLimiterService.createKycLimiter();
+      const userId = "kyc-test-user-999";
+      let requestCount = 0;
+      let rateLimitHit = false;
+
+      for (let i = 0; i < 4; i++) {
+        const mockReq = {
+          ip: "10.0.0.1",
+          path: "/api/kyc/submit",
+          user: { id: userId },
+          headers: { "user-agent": "test-agent" },
+        } as unknown as Request;
+
+        const mockRes = {
+          status: () => ({
+            json: (data: any) => {
+              if (data.message?.includes("Too many KYC")) {
+                rateLimitHit = true;
+              }
+            },
+          }),
+          setHeader: () => {},
+          getHeader: () => undefined,
+        } as unknown as Response;
+
+        const mockNext = () => {
+          requestCount++;
+        };
+
+        await limiter(mockReq, mockRes, mockNext);
+      }
+
+      expect(requestCount).toBe(3);
+      expect(rateLimitHit).toBe(true);
+    });
   });
 
   describe("createSensitiveLimiter", () => {

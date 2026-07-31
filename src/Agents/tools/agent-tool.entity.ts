@@ -9,7 +9,7 @@ import {
 } from "typeorm";
 
 /**
- *
+ * TypeORM entity representing a registered agent tool with configuration and activation state
  */
 @Entity()
 export class AgentTool {

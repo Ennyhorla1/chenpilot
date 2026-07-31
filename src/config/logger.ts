@@ -4,12 +4,17 @@ import path from "path";
 import { getObservabilityLogFields } from "../observability";
 
 // Sensitive fields to redact from logs
-const SENSITIVE_FIELDS = ["pk", "privateKey", "password", "token", "secret"];
+const SENSITIVE_FIELDS = [
+  "pk", "privateKey", "password", "token", "secret",
+  "fullName", "dateOfBirth", "email", "phoneNumber",
+  "addressLine1", "addressLine2", "postalCode", "countryCode",
+  "documentId", "fileUrl"
+];
 
 /**
  * Recursively redacts sensitive data from objects
  */
-function redactSensitiveData(obj: unknown): unknown {
+export function redactSensitiveData(obj: unknown): unknown {
   if (obj === null || obj === undefined) return obj;
 
   if (Array.isArray(obj)) {

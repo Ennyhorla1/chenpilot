@@ -22,7 +22,7 @@ interface SorobanInvokePayload extends Record<string, unknown> {
 }
 
 /**
- *
+ * Tool for invoking Soroban smart contracts (read-only simulation)
  */
 export class SorobanTool extends BaseTool<SorobanInvokePayload> {
   metadata: ToolMetadata = {
@@ -86,7 +86,10 @@ export class SorobanTool extends BaseTool<SorobanInvokePayload> {
   };
 
   /**
-   *
+   * Execute a Soroban smart contract invocation
+   * @param payload - The invocation payload with contract ID, method, and arguments
+   * @param userId - The user invoking the contract
+   * @returns ToolResult with invocation result
    */
   async execute(payload: SorobanInvokePayload, userId: string): Promise<ToolResult> {
     const lifecycle = await transactionLifecycleService.create(

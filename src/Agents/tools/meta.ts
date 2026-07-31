@@ -2,7 +2,7 @@ import { BaseTool } from "./base/BaseTool";
 import { ToolMetadata, ToolResult } from "../registry/ToolMetadata";
 
 /**
- *
+ * Tool that provides information about the agent (name, capabilities, version)
  */
 export class MetaTool extends BaseTool {
   metadata: ToolMetadata = {
@@ -30,7 +30,10 @@ export class MetaTool extends BaseTool {
   };
 
   /**
-   *
+   * Execute a meta operation to retrieve agent information
+   * @param payload - The operation payload containing the operation type
+   * @param _userId - User ID (unused for meta operations)
+   * @returns ToolResult with agent information
    */
   async execute(
     payload: Record<string, unknown>,

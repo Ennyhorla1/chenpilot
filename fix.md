@@ -1,13 +1,13 @@
- Expand CONTRIBUTING.md with a concrete "good first issue" onboarding path
+Consolidate duplicate config files: commitlint.config.js vs .ts, hardhat.config.js vs .ts, eslint.config.mjs vs .mts
 Repo Avatar
 gear5labs/chenpilot
-CONTRIBUTING.md references "a roadmap of 50 priority issues" and points to help wanted/good first issue labels, but doesn't walk a new contributor through what a minimal first contribution looks like end-to-end (e.g., which specific test suite to run locally to confirm their environment works before picking up an issue, or a worked example of a trivial tool addition).
+The repo root has both a .js and .ts version of commitlint.config, hardhat.config, and eslint.config. Having both is confusing for contributors (which one is actually loaded?) and risks the two files drifting out of sync silently.
 
 Proposed Work
 
-Add a "Your First PR" walkthrough section to CONTRIBUTING.md: environment sanity check (npm test), a suggested first issue category (e.g., docs or test-coverage issues from this batch), and what reviewers will look for
-Link directly to issues labeled good first issue in this batch as concrete starting points
+Determine which file is actually loaded by each tool (Node config resolution order)
+Delete the unused duplicate, or clearly document why both exist (e.g., one is for a legacy toolchain)
 Acceptance Criteria
 
- New section added to CONTRIBUTING.md
- At least 3 issues from this list are labeled good first issue and linked as examples
+ Duplicate config pairs resolved to a single source of truth each
+ CONTRIBUTING.md notes the config file convention going forward

@@ -36,7 +36,7 @@ const STELLAR_ASSETS: Record<string, StellarSdk.Asset> = {
 };
 
 /**
- *
+ * Tool for swapping tokens on the Stellar DEX using path payments with risk analysis and distributed locking
  */
 export class SwapTool extends BaseTool<SwapPayload> {
   metadata: ToolMetadata = {
@@ -80,7 +80,7 @@ export class SwapTool extends BaseTool<SwapPayload> {
   private readonly lockHeartbeatIntervalMs = 30000;
 
   /**
-   *
+   * Initialize the swap tool with Stellar Horizon server and Redis lock service
    */
   constructor() {
     super();
@@ -89,7 +89,10 @@ export class SwapTool extends BaseTool<SwapPayload> {
   }
 
   /**
-   *
+   * Get a Stellar keypair for the user from stored account data
+   * @param userId - The user ID
+   * @returns Stellar keypair
+   * @throws Error if account not found
    */
   private getStellarAccount(userId: string): StellarSdk.Keypair {
     const accountData =
@@ -103,7 +106,10 @@ export class SwapTool extends BaseTool<SwapPayload> {
   }
 
   /**
-   *
+   * Execute a token swap on Stellar DEX with risk analysis and distributed locking
+   * @param payload - The swap payload with from, to assets and amount
+   * @param userId - The user executing the swap
+   * @returns ToolResult with swap result
    */
   async execute(payload: SwapPayload, userId: string): Promise<ToolResult> {
     // Create lifecycle record at intent state
@@ -189,6 +195,12 @@ export class SwapTool extends BaseTool<SwapPayload> {
     }
   }
 
+  /**
+   * Start a periodic heartbeat to keep the distributed lock alive
+   * @param lockKey - The lock key
+   * @param userId - The user ID
+   * @returns Interval timer reference
+   */
   private startLockHeartbeat(
     lockKey: string,
     userId: string
@@ -205,12 +217,25 @@ export class SwapTool extends BaseTool<SwapPayload> {
     }, this.lockHeartbeatIntervalMs);
   }
 
+  /**
+   * Stop the lock heartbeat interval
+   * @param heartbeat - The interval timer to clear
+   */
   private stopLockHeartbeat(heartbeat?: NodeJS.Timeout): void {
     if (heartbeat) {
       clearInterval(heartbeat);
     }
   }
 
+  /**
+   * Execute the swap while holding the distributed lock
+   * @param payload - The swap payload
+   * @param userId - The user ID
+   * @param lockKey - The lock key
+   * @param lifecycleId - Transaction lifecycle ID
+   * @param heartbeat - Optional heartbeat timer reference
+   * @returns ToolResult with swap result
+   */
   private async executeWithLock(
     payload: SwapPayload,
     userId: string,
