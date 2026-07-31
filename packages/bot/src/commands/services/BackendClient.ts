@@ -3,7 +3,7 @@
  * Provides safer integration with backend services with retry logic, timeouts, and circuit breakers
  */
 
-import { BackendClient, CommandError, ErrorCode } from '../types.js';
+import { BackendClient, CommandError } from '../types';
 
 interface CircuitBreakerState {
   isOpen: boolean;

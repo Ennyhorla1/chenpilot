@@ -5,11 +5,8 @@
 
 import {
   DiscordInteraction,
-  InteractionHandler,
   InteractionResult,
-  InteractionError,
-  InteractionErrorCode,
-} from './types.js';
+} from './types';
 
 type ButtonCallback = (interaction: DiscordInteraction, data: any) => Promise<InteractionResult<any>>;
 
