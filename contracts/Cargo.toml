@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "contract_failure",
+    "pause_state",
     "btc_relay",
     "btc_relay_crypto",
     "core_vault",

@@ -3,6 +3,7 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, Env, Address, BytesN, token, symbol_short, Symbol};
 use contract_failure::{fail, unwrap_or_fail, FailureReason};
+use pause_state;
 
 // Unified role enum - must match UnifiedAuth contract
 #[contracttype]
@@ -226,7 +227,7 @@ impl CoreVaultContract {
         }
         
         // Check upgrade mode - restrict backend changes during upgrade
-        if Self::is_upgrade_mode(&env) {
+        if Self::is_upgrade_mode_internal(&env) {
             fail(&env, FailureReason::UpgradeMode);
         }
         
@@ -234,7 +235,9 @@ impl CoreVaultContract {
         env.storage().instance().set(&DataKey::BackendOnline, &online);
 
         env.events().publish(
-            (symbol_short!("vault"), symbol_short!("backend_status")),
+            // "backend_status" is 14 chars — over symbol_short!'s 9-char
+            // limit, so this uses Symbol::new (max 32 chars) instead.
+            (symbol_short!("vault"), Symbol::new(&env, "backend_status")),
             EvtBackendStatus {
                 version: 1,
                 ledger: env.ledger().sequence(),
@@ -248,14 +251,50 @@ impl CoreVaultContract {
         env.storage().instance().get(&DataKey::BackendOnline).unwrap_or(true)
     }
 
+    // ── Emergency pause (see the `pause_state` crate for the standard) ─────────
+    //
+    // Deposits are blocked while paused — no new funds should enter the vault
+    // during an incident. Withdrawal and force-exit stay available: pausing
+    // is meant to stop new exposure, not trap funds users already deposited.
+    // This mirrors common DeFi vault emergency-pause conventions and is a
+    // deliberate choice, not an oversight — see the module doc on
+    // `pause_state` for the composable pattern this implements.
+
+    /// Pause the vault. Blocks `deposit()` until `unpause()` is called.
+    /// Trust boundary: VAULT_ADMIN or EMERGENCY_ADMIN, same as
+    /// `set_backend_status`.
+    /// Emits the standard `pause_state` `pause_chg` event.
+    pub fn pause(env: Env) {
+        Self::require_vault_or_emergency_admin(&env);
+        let caller = env.current_contract_address();
+        pause_state::pause(&env, caller);
+    }
+
+    /// Unpause the vault, re-enabling `deposit()`.
+    /// Trust boundary: VAULT_ADMIN or EMERGENCY_ADMIN.
+    /// Emits the standard `pause_state` `pause_chg` event.
+    pub fn unpause(env: Env) {
+        Self::require_vault_or_emergency_admin(&env);
+        let caller = env.current_contract_address();
+        pause_state::unpause(&env, caller);
+    }
+
+    /// Whether the vault is currently paused. Safe to call from another
+    /// contract via a `#[contractclient]` trait for cross-contract pause
+    /// checks — see `pause_state`'s module doc.
+    pub fn is_paused(env: Env) -> bool {
+        pause_state::is_paused(&env)
+    }
+
     // ── Deposit ───────────────────────────────────────────────────────────────
 
     /// Deposit tokens into the vault.
-    /// Only allowed when backend is ONLINE.
+    /// Only allowed when backend is ONLINE and the vault is not paused.
     /// Trust boundary: Funds are non-custodial - user owns their deposit balance.
     /// Emits `deposit` event on success.
     pub fn deposit(env: Env, user: Address, amount: i128) {
         user.require_auth();
+        pause_state::require_not_paused(&env);
         if !Self::is_backend_online(env.clone()) {
             fail(&env, FailureReason::BackendOffline);
         }
@@ -466,7 +505,7 @@ impl CoreVaultContract {
 
         let caller = env.current_contract_address();
         env.events().publish(
-            (EVT_UPG_CNCL, caller),
+            (EVT_UPG_CNCL, caller.clone()),
             caller,
         );
     }
@@ -528,13 +567,13 @@ impl CoreVaultContract {
     
     // ─── UnifiedAuth Integration Helpers ─────────────────────────────────────
     
-    fn get_unified_auth(env: &Env) -> Address {
+    fn get_unified_auth_internal(env: &Env) -> Address {
         env.storage().instance().get(&DataKey::UnifiedAuth)
             .unwrap_or_else(|| fail(env, FailureReason::UnifiedAuthNotConfigured))
     }
     
     fn require_vault_or_emergency_admin(env: &Env) {
-        let unified_auth = Self::get_unified_auth(env);
+        let unified_auth = Self::get_unified_auth_internal(env);
         let caller = env.current_contract_address();
         
         // Try VaultAdmin first, then EmergencyAdmin
@@ -546,7 +585,7 @@ impl CoreVaultContract {
     }
     
     fn require_upgrade_admin(env: &Env) {
-        let unified_auth = Self::get_unified_auth(env);
+        let unified_auth = Self::get_unified_auth_internal(env);
         let caller = env.current_contract_address();
         
         // In production, call UnifiedAuth::require_role(UnifiedRole::UpgradeAdmin)
@@ -556,14 +595,16 @@ impl CoreVaultContract {
         admin.require_auth();
     }
     
+    /// Now backed by the real `pause_state` standard rather than a
+    /// hard-coded `false`. `set_backend_status` and `propose_upgrade`
+    /// already gated themselves on this — pausing the vault via
+    /// `Self::pause()` now actually blocks those operations, as their
+    /// existing "Check emergency state" comments always assumed it would.
     fn is_emergency_active(env: &Env) -> bool {
-        let unified_auth = Self::get_unified_auth(env);
-        // In production, call UnifiedAuth::is_emergency_active()
-        // For now, return false
-        false
+        pause_state::is_paused(env)
     }
     
-    fn is_upgrade_mode(env: &Env) -> bool {
+    fn is_upgrade_mode_internal(env: &Env) -> bool {
         env.storage().instance().get(&DataKey::UpgradeMode).unwrap_or(false)
     }
 
@@ -574,9 +615,9 @@ impl CoreVaultContract {
             .map(|p| p.unlock_ledger)
             .unwrap_or(0)
     }
-    
+
     pub fn is_upgrade_mode(env: Env) -> bool {
-        Self::is_upgrade_mode(&env)
+        Self::is_upgrade_mode_internal(&env)
     }
     
     pub fn get_unified_auth(env: Env) -> Option<Address> {
@@ -585,3 +626,4 @@ impl CoreVaultContract {
 }
 
 mod test;
+mod test_pause;
