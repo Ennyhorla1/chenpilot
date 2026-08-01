@@ -4,6 +4,7 @@ use soroban_sdk::{
     Address, Env, Vec,
 };
 use contract_failure::{fail, unwrap_or_fail, FailureReason};
+use pause_state;
 
 // TTL for price snapshot: ~1 day (172_800 ledgers at 5s/ledger)
 // Snapshots must be refreshed regularly to maintain price safety
@@ -258,6 +259,46 @@ impl FlashLoanGuardContract {
         );
     }
 
+    // ── Emergency pause (see the `pause_state` crate for the standard) ─────────
+    //
+    // Pausing blocks record_snapshot() — no new price data is accepted
+    // during an incident, which also means assert_price_safe() will start
+    // failing on staleness once the existing snapshot ages out. That's
+    // intentional: flash_loan_guard's whole purpose is gating on fresh,
+    // validated prices, so refusing to accept new snapshots is the correct
+    // emergency posture, not a bug.
+
+    /// Pause the guard. Blocks `record_snapshot()` until `unpause()`.
+    /// Trust boundary: Config.admin only.
+    pub fn pause(env: Env) {
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
+        config.admin.require_auth();
+        pause_state::pause(&env, config.admin);
+    }
+
+    /// Unpause the guard, re-enabling `record_snapshot()`.
+    /// Trust boundary: Config.admin only.
+    pub fn unpause(env: Env) {
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
+        config.admin.require_auth();
+        pause_state::unpause(&env, config.admin);
+    }
+
+    /// Whether the guard is currently paused. Safe to call from another
+    /// contract via a `#[contractclient]` trait for cross-contract pause
+    /// checks — see `pause_state`'s module doc.
+    pub fn is_paused(env: Env) -> bool {
+        pause_state::is_paused(&env)
+    }
+
     /// Update circuit breaker state and auto-release if window expired
     fn update_circuit_breaker(env: Env, current_ledger: u32, current_time: u64) {
         let config: Config = env
@@ -289,6 +330,7 @@ impl FlashLoanGuardContract {
     }
 
     pub fn record_snapshot(env: Env, oracle_timestamp: u64, oracle_sequence: u64) {
+        pause_state::require_not_paused(&env);
         let config: Config = env
             .storage()
             .instance()
@@ -599,3 +641,4 @@ impl FlashLoanGuardContract {
 mod test;
 mod test_freshness;
 mod test_invariants;
+mod test_pause;

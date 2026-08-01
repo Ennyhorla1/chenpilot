@@ -3,17 +3,54 @@
  * Main Discord adapter using modular components
  */
 
-import { Client, GatewayIntentBits } from 'discord.js';
-import { ButtonHandler } from './modules/interaction/ButtonHandler.js';
-import { ThreadSafety } from './modules/thread/ThreadSafety.js';
-import { RoleGate } from './modules/role/RoleGate.js';
-import { SafeBackendClient } from '../commands/services/BackendClient.js';
+import {
+  Client,
+  GatewayIntentBits,
+  Message,
+  TextChannel,
+  ChannelType,
+} from 'discord.js';
+import { ButtonHandler } from './modules/interaction/ButtonHandler';
+import { ThreadSafety } from './modules/thread/ThreadSafety';
+import { RoleGate } from './modules/role/RoleGate';
+import { SafeBackendClient } from '../commands/services/BackendClient';
+import {
+  ModerationPolicyEngine,
+  InMemoryAuditSink,
+  createDefaultModerationPolicy,
+  isModerationEnabled,
+  discordMessageToModerationEvent,
+  type ModerationResult,
+} from '../moderation/index';
+
+/**
+ * Channels that can receive a plain-text follow-up (warning notice or
+ * mod-log escalation). Threads and regular text channels both expose
+ * `.send()`; other channel types (voice, forum, category, …) do not.
+ */
+type SendableChannel = TextChannel;
+
+function isSendableChannel(channel: unknown): channel is SendableChannel {
+  const type = (channel as { type?: ChannelType } | null)?.type;
+  return (
+    type === ChannelType.GuildText ||
+    type === ChannelType.GuildPublicThread ||
+    type === ChannelType.GuildPrivateThread ||
+    type === ChannelType.GuildAnnouncement
+  );
+}
 
 export interface DiscordAdapterConfig {
   token: string;
   backendUrl: string;
   adminRoleIds: string[];
   intents?: GatewayIntentBits[];
+  /**
+   * Channel that receives moderation audit notices for "escalate" decisions.
+   * Falls back to MODERATION_LOG_CHANNEL_ID, then DISCORD_AUDIT_LOG_CHANNEL_ID
+   * (shared with the legacy adapter's audit log) when omitted.
+   */
+  moderationLogChannelId?: string;
 }
 
 export class DiscordAdapter {
@@ -22,6 +59,10 @@ export class DiscordAdapter {
   private threadSafety: ThreadSafety;
   private roleGate: RoleGate;
   private backendClient: SafeBackendClient;
+  private moderationEngine: ModerationPolicyEngine;
+  private moderationAuditSink: InMemoryAuditSink;
+  private moderationEnabled: boolean;
+  private moderationLogChannelId?: string;
   private config: DiscordAdapterConfig;
 
   constructor(config: DiscordAdapterConfig) {
@@ -45,6 +86,21 @@ export class DiscordAdapter {
 
     // Configure role gate
     this.roleGate.setAdminRoleIds(config.adminRoleIds);
+
+    // Initialize the shared moderation policy engine. Audit sink failures
+    // never propagate — see ModerationPolicyEngine.audit().
+    this.moderationEnabled = isModerationEnabled();
+    this.moderationLogChannelId =
+      config.moderationLogChannelId ||
+      process.env.MODERATION_LOG_CHANNEL_ID ||
+      process.env.DISCORD_AUDIT_LOG_CHANNEL_ID;
+    this.moderationAuditSink = new InMemoryAuditSink();
+    const { rules, escalation } = createDefaultModerationPolicy();
+    this.moderationEngine = new ModerationPolicyEngine({
+      rules,
+      escalation,
+      auditSinks: [this.moderationAuditSink],
+    });
 
     // Setup event handlers
     this.setupEventHandlers();
@@ -91,13 +147,13 @@ export class DiscordAdapter {
       if (interaction.isButton()) {
         await this.handleButtonInteraction(interaction);
       } else if (interaction.isModalSubmit()) {
-        await this.handleModalInteraction(interaction);
+        await this.handleModalInteraction();
       } else if (interaction.isStringSelectMenu()) {
-        await this.handleSelectInteraction(interaction);
+        await this.handleSelectInteraction();
       } else if (interaction.isChatInputCommand()) {
         await this.handleCommandInteraction(interaction);
       }
-    } catch (error) {
+    } catch {
       // TODO: Log error
     }
   }
@@ -140,14 +196,14 @@ export class DiscordAdapter {
   /**
    * Handle modal interaction
    */
-  private async handleModalInteraction(interaction: any): Promise<void> {
+  private async handleModalInteraction(): Promise<void> {
     // TODO: Implement modal handling
   }
 
   /**
    * Handle select interaction
    */
-  private async handleSelectInteraction(interaction: any): Promise<void> {
+  private async handleSelectInteraction(): Promise<void> {
     // TODO: Implement select handling
   }
 
@@ -186,7 +242,7 @@ export class DiscordAdapter {
         content: JSON.stringify(result),
         ephemeral: false,
       });
-    } catch (error) {
+    } catch {
       await interaction.reply({
         content: 'Failed to execute command',
         ephemeral: true,
@@ -197,12 +253,111 @@ export class DiscordAdapter {
   /**
    * Handle message
    */
-  private async handleMessage(message: any): Promise<void> {
+  private async handleMessage(message: Message): Promise<void> {
     // Ignore bot messages
     if (message.author.bot) return;
 
+    await this.runModeration(message);
+
     // TODO: Handle legacy commands
-    // TODO: Handle scam detection
+  }
+
+  /**
+   * Run the shared moderation policy engine against an incoming message and
+   * enforce its decision. Never throws — a moderation failure must not take
+   * down message handling for the rest of the bot.
+   */
+  private async runModeration(message: Message): Promise<void> {
+    if (!this.moderationEnabled) return;
+
+    try {
+      const event = discordMessageToModerationEvent({
+        id: message.id,
+        content: message.content,
+        channelId: message.channelId,
+        guildId: message.guildId,
+        createdTimestamp: message.createdTimestamp,
+        author: { id: message.author.id, bot: message.author.bot },
+      });
+
+      const result = await this.moderationEngine.moderate(event);
+      if (result.decision === 'allow') return;
+
+      await this.enforceModerationDecision(message, result);
+    } catch (error) {
+      // Moderation must never break normal message handling.
+      console.error('[DiscordAdapter] Moderation error:', error);
+    }
+  }
+
+  /**
+   * Apply the engine's decision to the originating Discord message:
+   *  - warn:     reply in-channel with the notice, message stays.
+   *  - delete:   delete the message, then post the notice in-channel.
+   *  - escalate: delete the message and forward a report to the mod-log
+   *              channel in addition to the in-channel notice.
+   */
+  private async enforceModerationDecision(
+    message: Message,
+    result: ModerationResult
+  ): Promise<void> {
+    const notice = result.userMessage ?? 'This message violates our moderation policy.';
+
+    if (result.decision === 'delete' || result.decision === 'escalate') {
+      try {
+        await message.delete();
+      } catch (error) {
+        // Message may already be gone, or the bot may lack permissions —
+        // still proceed to notify/escalate so moderators see the flag.
+        console.error('[DiscordAdapter] Failed to delete moderated message:', error);
+      }
+    }
+
+    if (isSendableChannel(message.channel)) {
+      await message.channel.send(notice);
+    }
+
+    if (result.decision === 'escalate') {
+      await this.postToModerationLog(message, result);
+    }
+  }
+
+  /**
+   * Forward an escalated moderation decision to the configured mod-log
+   * channel. Silently no-ops when no channel is configured or the channel
+   * can't be resolved — audit failures must not affect enforcement.
+   */
+  private async postToModerationLog(
+    message: Message,
+    result: ModerationResult
+  ): Promise<void> {
+    if (!this.moderationLogChannelId) return;
+
+    try {
+      const channel = await this.client.channels.fetch(this.moderationLogChannelId);
+      if (!isSendableChannel(channel)) return;
+
+      const report =
+        `🚨 **Moderation Escalation**\n` +
+        `**User:** <@${message.author.id}> (\`${message.author.id}\`)\n` +
+        `**Channel:** <#${message.channelId}>\n` +
+        `**Rule:** \`${result.ruleId ?? 'unknown'}\`\n` +
+        `**Reason:** ${result.reason ?? 'Policy violation'}\n` +
+        `**Strikes:** ${result.strikes}\n` +
+        `**Content:** ${message.content.slice(0, 500)}`;
+
+      await channel.send(report);
+    } catch (error) {
+      console.error('[DiscordAdapter] Failed to post moderation escalation log:', error);
+    }
+  }
+
+  /**
+   * Read-only access to the moderation audit trail — used by tests and
+   * admin tooling that needs to inspect recent decisions.
+   */
+  getModerationAuditSink(): InMemoryAuditSink {
+    return this.moderationAuditSink;
   }
 
   /**

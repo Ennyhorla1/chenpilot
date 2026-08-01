@@ -3,12 +3,12 @@
  * Bridges the permission matrix with Discord/Telegram role systems
  */
 
+import type { Client } from 'discord.js';
 import {
   PermissionMatrix,
   PermissionContext,
   PermissionCheckResult,
   PlatformRoleMapping,
-  PermissionLevel,
 } from './matrix.js';
 
 /**
@@ -53,14 +53,14 @@ export interface PlatformRoleFetcher {
  * Discord role fetcher implementation
  */
 export class DiscordRoleFetcher implements PlatformRoleFetcher {
-  private client: any; // Discord.js client
+  private client: Client;
   private adminRoleIds: Set<string>;
   private moderatorRoleIds: Set<string>;
   private verifiedRoleIds: Set<string>;
   private roleCache: Map<string, { roles: string[]; expiresAt: number }>;
 
   constructor(
-    client: any,
+    client: Client,
     options: {
       adminRoleIds?: string[];
       moderatorRoleIds?: string[];
@@ -114,7 +114,7 @@ export class DiscordRoleFetcher implements PlatformRoleFetcher {
       const guild = await this.client.guilds.fetch(guildId);
       const member = await guild.members.fetch(userId);
 
-      const roles = member.roles.cache.map((role: any) => role.id);
+      const roles = member.roles.cache.map((role) => role.id);
 
       // Cache for 5 minutes
       this.roleCache.set(cacheKey, {

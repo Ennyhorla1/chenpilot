@@ -27,6 +27,22 @@ impl BtcCryptoContract {
         BytesN::from_array(&env, &arr)
     }
 
+    /// Extract the 32-byte previous-block-hash field from a Bitcoin block
+    /// header. Bytes 4–35 (0-indexed) of the 80-byte header, as stored
+    /// on-wire (little-endian byte order — the same convention Bitcoin
+    /// itself uses for hash fields; this is NOT byte-reversed to the
+    /// display/big-endian order block explorers show).
+    ///
+    /// Used by the header-chain / reorg-detection logic in `btc_relay` to
+    /// link a submitted header to its parent.
+    pub fn extract_prev_block_hash(env: Env, header: Bytes) -> BytesN<32> {
+        let mut arr = [0u8; 32];
+        for i in 0..32usize {
+            arr[i] = header.get(4 + i as u32).unwrap();
+        }
+        BytesN::from_array(&env, &arr)
+    }
+
     /// Decode the compact-format target (nBits) from the block header.
     /// nBits field is at bytes 72–75 (little-endian u32).
     /// Returns a 32-byte big-endian target value.
