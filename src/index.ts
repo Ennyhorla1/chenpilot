@@ -9,6 +9,7 @@ import { horizonOperationStreamerService } from "./services/horizonOperationStre
 import { priceSpikeAlertService } from "./services/priceSpikeAlert.service";
 import { durableRecoveryService } from "./Agents/planner/DurableRecoveryService";
 import { idempotencyService } from "./Reliability/IdempotencyService";
+import { adminWorkflowService } from "./Agents/admin/workflow.service";
 
 class Server {
   private server: http.Server;
@@ -53,7 +54,10 @@ class Server {
       await AppDataSource.initialize();
       console.log("DB connection established!");
       logger.info("Database connected successfully");
-      
+
+      // Initialize default admin workflow policies
+      await adminWorkflowService.initializeDefaultPolicies();
+
       // Recover interrupted durable executions
       await durableRecoveryService.recoverInterruptedExecutions();
 

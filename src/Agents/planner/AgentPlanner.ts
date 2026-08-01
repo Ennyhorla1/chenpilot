@@ -174,7 +174,8 @@ Output JSON format:
       totalSteps: steps.length,
       estimatedDuration: steps.length * 3000,
       riskLevel,
-      requiresApproval: riskLevel === "high" || steps.some(s => s.requiresApproval),
+      requiresApproval:
+        riskLevel === "high" || steps.some((s) => s.requiresApproval),
       summary: `Plan for "${context.userInput}"`,
     };
   }
@@ -183,7 +184,9 @@ Output JSON format:
     const highRiskActions = ["swap", "transfer", "withdraw", "approve"];
     if (highRiskActions.includes(step.action.toLowerCase())) {
       // Check for large amounts if available
-      const amount = (step.payload as any)?.amount;
+      const rawAmount = step.payload.amount;
+      if (typeof rawAmount === "string" && parseFloat(rawAmount) > 1000) return true;
+      const amount = (step.payload as Record<string, unknown>)?.amount;
       if (amount && parseFloat(amount) > 1000) return true;
       return true; // Default high risk for these actions for now
     }
@@ -211,7 +214,13 @@ Output JSON format:
 
     // Map composite score to the 3-level scale used by ExecutionPlan
     return RiskEngine.toPreferenceTier(
-      maxScore >= 70 ? "critical" : maxScore >= 50 ? "high" : maxScore >= 30 ? "medium" : "low"
+      maxScore >= 70
+        ? "critical"
+        : maxScore >= 50
+          ? "high"
+          : maxScore >= 30
+            ? "medium"
+            : "low"
     );
   }
 

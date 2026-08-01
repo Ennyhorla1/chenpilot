@@ -2,7 +2,6 @@ import { Router, Request, Response } from "express";
 import helmet from "helmet";
 import RateLimiterService from "./middleware/rateLimiter.service";
 import * as os from "os";
-import * as crypto from "crypto";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { container } from "tsyringe";
 import AppDataSource from "../config/Datasource";
@@ -11,14 +10,10 @@ import UserService from "../Auth/user.service";
 import { stellarWebhookService } from "./webhook.service";
 import { platformWebhookService } from "./platformWebhook.service";
 import { SponsorshipTransactionBuilder } from "../../packages/sdk/src/sponsorship";
-import {
-  transactionHistoryService,
-  type TransactionQueryParams,
-  type TransactionType,
-} from "./transaction.service";
 import logger from "../config/logger";
 import authRoutes from "../Auth/auth.routes";
 import userPreferencesRoutes from "../Auth/userPreferences.routes";
+import botIdentityRoutes from "../Auth/botIdentity.routes";
 import dataExportRoutes from "../services/dataExport.routes";
 import contractMetadataRoutes from "../services/contracts/contractMetadata.routes";
 import horizonProxyRoutes from "./horizonProxy.routes";
@@ -27,11 +22,10 @@ import adminAgentRoutes from "../Agents/admin/adminAgent.routes";
 import governanceRoutes from "../Agents/admin/governance.routes";
 import experimentRoutes from "../Agents/admin/experiment.routes";
 import simulationRoutes from "../Agents/admin/simulation.routes";
+import workflowRoutes from "../Agents/admin/workflow.routes";
 import { stellarLiquidityTool } from "../Agents/tools/stellarLiquidityTool";
-import logger from "../config/logger";
 import { auditLogService } from "../AuditLog/auditLog.service";
 import { AuditAction, AuditSeverity } from "../AuditLog/auditLog.entity";
-import contractRegistryRoutes from "../ContractRegistry/contractRegistry.routes";
 import kycRoutes from "../services/kyc/kyc.routes";
 import { getSocketManager } from "./socketManager";
 import { BotSessionService } from "../Bot/botSession.service";
@@ -51,6 +45,9 @@ router.use("/auth", authExtraRoutes);
 
 // Mount user preferences routes
 router.use("/user/preferences", userPreferencesRoutes);
+
+// Mount bot identity routes
+router.use("/bot-identity", botIdentityRoutes);
 
 // Mount data export routes
 router.use("/export", dataExportRoutes);
@@ -76,6 +73,9 @@ router.use("/admin/experiments", experimentRoutes);
 
 // Mount simulation routes (requires admin role)
 router.use("/admin/simulation", simulationRoutes);
+
+// Mount workflow routes (requires admin role)
+router.use("/admin/workflows", workflowRoutes);
 router.get(
   "/admin/operator-report",
   authenticateToken,
@@ -131,27 +131,29 @@ router.post("/bot/metrics", async (req: Request, res: Response) => {
     }
 
     // Map bot command to audit action
-    const commandMap: Record<string, AuditAction> = {
-      "!start": AuditAction.BOT_COMMAND_START,
-      "/start": AuditAction.BOT_COMMAND_START,
-      "!help": AuditAction.BOT_COMMAND_HELP,
-      "/help": AuditAction.BOT_COMMAND_HELP,
-      "!thread": AuditAction.BOT_COMMAND_THREAD,
-      "!sponsor": AuditAction.BOT_COMMAND_SPONSOR,
-      "!trustline": AuditAction.BOT_COMMAND_TRUSTLINE,
-      "/trustline": AuditAction.BOT_COMMAND_TRUSTLINE,
-      "!dashboard": AuditAction.BOT_COMMAND_DASHBOARD,
-      "/dashboard": AuditAction.BOT_COMMAND_DASHBOARD,
-      "!validate": AuditAction.BOT_COMMAND_VALIDATE,
-      "/validate": AuditAction.BOT_COMMAND_VALIDATE,
-      "!balance": AuditAction.BOT_COMMAND_BALANCE,
-      "/balance": AuditAction.BOT_COMMAND_BALANCE,
-      "!swap": AuditAction.BOT_COMMAND_SWAP,
-      "/swap": AuditAction.BOT_COMMAND_SWAP,
-    };
+    const auditAction = (
+      {
+        "!start": AuditAction.BOT_COMMAND_START,
+        "/start": AuditAction.BOT_COMMAND_START,
+        "!help": AuditAction.BOT_COMMAND_HELP,
+        "/help": AuditAction.BOT_COMMAND_HELP,
+        "!thread": AuditAction.BOT_COMMAND_THREAD,
+        "!sponsor": AuditAction.BOT_COMMAND_SPONSOR,
+        "!trustline": AuditAction.BOT_COMMAND_TRUSTLINE,
+        "/trustline": AuditAction.BOT_COMMAND_TRUSTLINE,
+        "!dashboard": AuditAction.BOT_COMMAND_DASHBOARD,
+        "/dashboard": AuditAction.BOT_COMMAND_DASHBOARD,
+        "!validate": AuditAction.BOT_COMMAND_VALIDATE,
+        "/validate": AuditAction.BOT_COMMAND_VALIDATE,
+        "!balance": AuditAction.BOT_COMMAND_BALANCE,
+        "/balance": AuditAction.BOT_COMMAND_BALANCE,
+        "!swap": AuditAction.BOT_COMMAND_SWAP,
+        "/swap": AuditAction.BOT_COMMAND_SWAP,
+      } as Record<string, AuditAction>
+    )[command];
 
-// Realtime
-router.use("/realtime", realtimeRoutes);
+    // Realtime
+    router.use("/realtime", realtimeRoutes);
 
     // Log to audit log
     await auditLogService.log({
@@ -601,7 +603,8 @@ router.post("/liquidity", async (req: Request, res: Response) => {
     });
     res.json(result);
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : "An unknown error occurred";
+    const errorMessage =
+      err instanceof Error ? err.message : "An unknown error occurred";
     res.status(500).json({ error: errorMessage });
   }
 });
@@ -659,7 +662,7 @@ router.get(
         message: "Failed to fetch job queue stats",
       });
     }
-  },
+  }
 );
 
 router.get(
@@ -682,7 +685,7 @@ router.get(
         message: "Failed to fetch dead-letter jobs",
       });
     }
-  },
+  }
 );
 
 // --- REAL-TIME UPDATES (Socket.io) ---
@@ -711,11 +714,6 @@ router.get(
  */
 router.get("/realtime/stats", (req: Request, res: Response) => {
   try {
-    // Dynamic import to avoid circular dependency issues
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getSocketManager: getManager } = require("./socketManager");
-    const socketManager = getManager();
-    const { getSocketManager } = require("./socketManager");
     const socketManager = getSocketManager();
 
     const stats = {
@@ -766,11 +764,6 @@ router.get("/realtime/stats", (req: Request, res: Response) => {
 router.get("/realtime/user/:userId/clients", (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
-    // Dynamic import to avoid circular dependency issues
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getSocketManager: getManager } = require("./socketManager");
-    const socketManager = getManager();
-    const { getSocketManager } = require("./socketManager");
     const socketManager = getSocketManager();
 
     const clients = socketManager.getUserClients(userId);
@@ -920,10 +913,15 @@ router.get(
       const userRepository = AppDataSource.getRepository(User);
       const user = await userRepository.findOne({ where: { id: userId } });
       if (!user) {
-        return res.status(404).json({ success: false, message: "User not found" });
+        return res
+          .status(404)
+          .json({ success: false, message: "User not found" });
       }
 
-      const summary = await portfolioService.getPortfolio(user.address, currency);
+      const summary = await portfolioService.getPortfolio(
+        user.address,
+        currency
+      );
 
       await auditLogService.log({
         userId,
@@ -948,10 +946,16 @@ router.get(
         fetchedAt: summary.fetchedAt,
       });
     } catch (error) {
-      logger.error("Portfolio fetch error", { error, userId: req.params.userId });
-      const message = error instanceof Error ? error.message : "Internal server error";
+      logger.error("Portfolio fetch error", {
+        error,
+        userId: req.params.userId,
+      });
+      const message =
+        error instanceof Error ? error.message : "Internal server error";
       const statusCode =
-        message.includes("not found") || message.includes("unreachable") ? 404 : 500;
+        message.includes("not found") || message.includes("unreachable")
+          ? 404
+          : 500;
       return res.status(statusCode).json({ success: false, message });
     }
   }
@@ -977,7 +981,10 @@ router.get("/price/:assetCode", async (req: Request, res: Response) => {
       price: result.price,
     });
   } catch (error) {
-    logger.error("Price fetch error", { error, assetCode: req.params.assetCode });
+    logger.error("Price fetch error", {
+      error,
+      assetCode: req.params.assetCode,
+    });
     return res.status(500).json({
       success: false,
       message: error instanceof Error ? error.message : "Internal server error",

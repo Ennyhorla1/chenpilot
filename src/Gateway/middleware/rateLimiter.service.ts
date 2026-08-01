@@ -1,5 +1,6 @@
 import { rateLimit, RateLimitRequestHandler } from "express-rate-limit";
 import RedisStore from "rate-limit-redis";
+import { Request, Response } from "express";
 import { getRedisClient } from "../../services/redis/client";
 import logger from "../../config/logger";
 
@@ -7,7 +8,7 @@ interface RateLimitConfig {
   windowMs: number;
   limit: number;
   message: Record<string, string>;
-  keyGenerator?: (req: any, res: any) => string;
+  keyGenerator?: (req: Request, res: Response) => string;
 }
 
 /**
@@ -26,7 +27,7 @@ export class RateLimiterService {
       // Create limiter with Redis store
       return rateLimit({
         store: new RedisStore({
-          client: redisClient as any,
+          client: redisClient,
           prefix: "rate-limit:",
           send200: true,
         }),
@@ -36,7 +37,7 @@ export class RateLimiterService {
         legacyHeaders: false,
         message: config.message,
         keyGenerator: config.keyGenerator,
-        skip: (req: any) => {
+        skip: (req: Request) => {
           // Don't rate limit health checks
           if (req.path === "/health" || req.path === "/ready") {
             return true;
@@ -105,7 +106,7 @@ export class RateLimiterService {
         message:
           "Too many KYC submissions. Please try again later. Each user is limited to 3 submissions per hour.",
       },
-      keyGenerator: (req: any) => {
+      keyGenerator: (req: Request) => {
         // Use user ID if authenticated, fall back to IP
         return req.user?.id || req.ip;
       },

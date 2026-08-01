@@ -3,6 +3,7 @@ use soroban_sdk::{
     contract, contractimpl, contracttype, contractclient, symbol_short,
     Address, Env, token,
 };
+use contract_failure::{fail, FailureReason};
 
 const POSITION_TTL_LEDGERS: u32 = 6_048_000;
 const MAX_BPS: i128 = 10_000;
@@ -100,9 +101,9 @@ pub struct LendingLiquidationContract;
 impl LendingLiquidationContract {
     pub fn initialize(env: Env, config: Config) {
         if env.storage().instance().has(&DataKey::Config) {
-            panic!("Already initialized");
+            fail(&env, FailureReason::AlreadyInitialized);
         }
-        Self::validate_config(&config);
+        Self::validate_config(&env, &config);
         env.storage().instance().set(&DataKey::Config, &config);
 
         env.events().publish(
@@ -123,9 +124,13 @@ impl LendingLiquidationContract {
     }
 
     pub fn update_config(env: Env, config: Config) {
-        let current_config: Config = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
+        let current_config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         current_config.admin.require_auth();
-        Self::validate_config(&config);
+        Self::validate_config(&env, &config);
         env.storage().instance().set(&DataKey::Config, &config);
 
         env.events().publish(
@@ -144,16 +149,6 @@ impl LendingLiquidationContract {
             },
         );
     }
-        Self::validate_config(&config);
-        env.storage().instance().set(&DataKey::Config, &config);
-    }
-
-    pub fn update_config(env: Env, config: Config) {
-        let current: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
-        current.admin.require_auth();
-        Self::validate_config(&config);
-        env.storage().instance().set(&DataKey::Config, &config);
-    }
 
     pub fn deposit_and_borrow(
         env: Env,
@@ -162,10 +157,14 @@ impl LendingLiquidationContract {
         borrow_amount: i128,
     ) {
         borrower.require_auth();
-        let config: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
 
         if collateral_amount <= 0 || borrow_amount <= 0 {
-            panic!("amounts must be positive");
+            fail(&env, FailureReason::AmountNotPositive);
         }
 
         let mut pos: Position = env
@@ -174,23 +173,29 @@ impl LendingLiquidationContract {
             .get(&DataKey::Position(borrower.clone()))
             .unwrap_or(Position { collateral_amount: 0, debt_amount: 0 });
 
-        let new_collateral = pos.collateral_amount.checked_add(collateral_amount).expect("overflow");
-        let new_debt = pos.debt_amount.checked_add(borrow_amount).expect("overflow");
+        let new_collateral = pos
+            .collateral_amount
+            .checked_add(collateral_amount)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
+        let new_debt = pos
+            .debt_amount
+            .checked_add(borrow_amount)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
 
         let oracle = PriceOracleClient::new(&env, &config.oracle);
         let col_price = oracle.get_price(&config.collateral_token);
         let debt_price = oracle.get_price(&config.debt_token);
 
-        Self::validate_prices(col_price, debt_price);
+        Self::validate_prices(&env, col_price, debt_price);
 
         let new_pos = Position {
             collateral_amount: new_collateral,
             debt_amount: new_debt,
         };
 
-        let hf = Self::compute_health_factor(&new_pos, col_price, debt_price, config.ltv_bps);
+        let hf = Self::compute_health_factor(&env, &new_pos, col_price, debt_price, config.ltv_bps);
         if hf < config.min_health_factor {
-            panic!("borrow exceeds LTV");
+            fail(&env, FailureReason::BorrowExceedsLTV);
         }
 
         let col_token = token::Client::new(&env, &config.collateral_token);
@@ -220,31 +225,35 @@ impl LendingLiquidationContract {
 
     pub fn liquidate(env: Env, liquidator: Address, borrower: Address, repay_amount: i128) {
         liquidator.require_auth();
-        let config: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
 
         if repay_amount <= 0 {
-            panic!("repay amount must be positive");
+            fail(&env, FailureReason::AmountNotPositive);
         }
 
         let mut pos: Position = env
             .storage()
             .persistent()
             .get(&DataKey::Position(borrower.clone()))
-            .expect("position not found");
+            .unwrap_or_else(|| fail(&env, FailureReason::NotFound));
 
         if pos.debt_amount == 0 {
-            panic!("no debt to liquidate");
+            fail(&env, FailureReason::NoDebtToLiquidate);
         }
 
         let oracle = PriceOracleClient::new(&env, &config.oracle);
         let col_price = oracle.get_price(&config.collateral_token);
         let debt_price = oracle.get_price(&config.debt_token);
 
-        Self::validate_prices(col_price, debt_price);
+        Self::validate_prices(&env, col_price, debt_price);
 
-        let hf = Self::compute_health_factor(&pos, col_price, debt_price, config.ltv_bps);
+        let hf = Self::compute_health_factor(&env, &pos, col_price, debt_price, config.ltv_bps);
         if hf >= config.min_health_factor {
-            panic!("position is healthy, cannot liquidate");
+            fail(&env, FailureReason::PositionHealthy);
         }
 
         let actual_repay = if repay_amount > pos.debt_amount {
@@ -254,6 +263,7 @@ impl LendingLiquidationContract {
         };
 
         let collateral_seized = Self::calculate_collateral_to_seize(
+            &env,
             actual_repay,
             pos.collateral_amount,
             col_price,
@@ -267,8 +277,14 @@ impl LendingLiquidationContract {
         let col_token = token::Client::new(&env, &config.collateral_token);
         col_token.transfer(&env.current_contract_address(), &liquidator, &collateral_seized);
 
-        pos.debt_amount = pos.debt_amount.checked_sub(actual_repay).expect("underflow");
-        pos.collateral_amount = pos.collateral_amount.checked_sub(collateral_seized).expect("underflow");
+        pos.debt_amount = pos
+            .debt_amount
+            .checked_sub(actual_repay)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
+        pos.collateral_amount = pos
+            .collateral_amount
+            .checked_sub(collateral_seized)
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
         
         env.storage().persistent().set_with_ttl(&DataKey::Position(borrower.clone()), &pos, POSITION_TTL_LEDGERS);
 
@@ -288,7 +304,11 @@ impl LendingLiquidationContract {
     }
 
     pub fn health_factor(env: Env, borrower: Address) -> i128 {
-        let config: Config = env.storage().instance().get(&DataKey::Config).expect("not initialized");
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         let pos: Position = env
             .storage()
             .persistent()
@@ -303,27 +323,35 @@ impl LendingLiquidationContract {
         let col_price = oracle.get_price(&config.collateral_token);
         let debt_price = oracle.get_price(&config.debt_token);
 
-        Self::validate_prices(col_price, debt_price);
+        Self::validate_prices(&env, col_price, debt_price);
 
-        Self::compute_health_factor(&pos, col_price, debt_price, config.ltv_bps)
+        Self::compute_health_factor(&env, &pos, col_price, debt_price, config.ltv_bps)
     }
 
     pub fn get_position(env: Env, borrower: Address) -> Option<Position> {
         env.storage().persistent().get(&DataKey::Position(borrower))
     }
 
-    fn validate_config(config: &Config) {
-        assert!(config.min_health_factor > 0, "invalid min health factor");
-        assert!(config.liquidation_bonus_bps >= 0 && config.liquidation_bonus_bps <= MAX_BPS, "invalid bonus bps");
-        assert!(config.ltv_bps > 0 && config.ltv_bps <= MAX_BPS, "invalid ltv bps");
+    fn validate_config(env: &Env, config: &Config) {
+        if config.min_health_factor <= 0 {
+            fail(env, FailureReason::InvalidArgument);
+        }
+        if config.liquidation_bonus_bps < 0 || config.liquidation_bonus_bps > MAX_BPS {
+            fail(env, FailureReason::InvalidArgument);
+        }
+        if config.ltv_bps <= 0 || config.ltv_bps > MAX_BPS {
+            fail(env, FailureReason::InvalidArgument);
+        }
     }
 
-    fn validate_prices(col_price: i128, debt_price: i128) {
-        assert!(col_price > 0, "invalid collateral price");
-        assert!(debt_price > 0, "invalid debt price");
+    fn validate_prices(env: &Env, col_price: i128, debt_price: i128) {
+        if col_price <= 0 || debt_price <= 0 {
+            fail(env, FailureReason::InvalidArgument);
+        }
     }
 
     fn calculate_collateral_to_seize(
+        env: &Env,
         actual_repay: i128,
         available_collateral: i128,
         col_price: i128,
@@ -331,14 +359,20 @@ impl LendingLiquidationContract {
         bonus_bps: i128,
     ) -> i128 {
         let repay_value = actual_repay
-            .checked_mul(debt_price).expect("overflow")
-            .checked_div(100_000_000).expect("div zero");
+            .checked_mul(debt_price)
+            .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError))
+            .checked_div(100_000_000)
+            .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError));
 
         let collateral_seized = repay_value
-            .checked_mul(MAX_BPS + bonus_bps).expect("overflow")
-            .checked_div(MAX_BPS).expect("div zero")
-            .checked_mul(100_000_000).expect("overflow")
-            .checked_div(col_price).expect("div zero");
+            .checked_mul(MAX_BPS + bonus_bps)
+            .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError))
+            .checked_div(MAX_BPS)
+            .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError))
+            .checked_mul(100_000_000)
+            .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError))
+            .checked_div(col_price)
+            .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError));
 
         if collateral_seized > available_collateral {
             available_collateral
@@ -348,6 +382,7 @@ impl LendingLiquidationContract {
     }
 
     fn compute_health_factor(
+        env: &Env,
         pos: &Position,
         col_price: i128,
         debt_price: i128,
@@ -357,12 +392,16 @@ impl LendingLiquidationContract {
             return i128::MAX;
         }
         pos.collateral_amount
-            .checked_mul(col_price).expect("overflow")
-            .checked_mul(ltv_bps).expect("overflow")
+            .checked_mul(col_price)
+            .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError))
+            .checked_mul(ltv_bps)
+            .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError))
             .checked_div(
                 pos.debt_amount
-                    .checked_mul(debt_price).expect("overflow")
-            ).expect("div zero")
+                    .checked_mul(debt_price)
+                    .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError)),
+            )
+            .unwrap_or_else(|| fail(env, FailureReason::ArithmeticError))
     }
 }
 

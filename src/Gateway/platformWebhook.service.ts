@@ -136,13 +136,13 @@ export class PlatformWebhookService {
     }
   }
 
-  private async handleTelegramUpdate(payload: TelegramWebhookPayload): Promise<any> {
+  private async handleTelegramUpdate(payload: TelegramWebhookPayload): Promise<{ status: string }> {
     // Original business logic for telegram would go here
     console.log("Durable handling of telegram update", payload.update_id);
     return { status: "processed" };
   }
 
-  private async handleDiscordUpdate(payload: DiscordWebhookPayload): Promise<any> {
+  private async handleDiscordUpdate(payload: DiscordWebhookPayload): Promise<{ status: string }> {
     // Original business logic for discord would go here
     console.log("Durable handling of discord update", payload.id);
     return { status: "processed" };

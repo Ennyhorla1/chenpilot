@@ -74,6 +74,12 @@ export enum AuditAction {
   BOT_COMMAND_BALANCE = "bot_command_balance",
   BOT_COMMAND_SWAP = "bot_command_swap",
   BOT_COMMAND_PORTFOLIO = "bot_command_portfolio",
+
+  // Bot identity linking
+  BOT_IDENTITY_LINKED = "bot_identity_linked",
+  BOT_IDENTITY_UNLINKED = "bot_identity_unlinked",
+  BOT_LINK_TOKEN_GENERATED = "bot_link_token_generated",
+  BOT_LINK_TOKEN_VERIFIED = "bot_link_token_verified",
 }
 
 export enum AuditSeverity {

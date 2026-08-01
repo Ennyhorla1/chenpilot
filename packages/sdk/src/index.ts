@@ -1,4 +1,9 @@
+export * from "./networkIntelligence";
 export * from "./errors";
+export * from "./errorRegistry";
+export * from "./eventDecoding";
+export * from "./inspectionReport";
+export * from "./compatibility";
 export * from "./types";
 export * from "./recovery";
 export * from "./planVerification";
@@ -23,8 +28,12 @@ export * from "./xdrDecoder";
 export * from "./assetCache";
 export * from "./networkStatus";
 export * from "./contractClient";
-export { 
-  AssetIntelligence, 
+export * from "./advancedOps";
+export * from "./signerSession";
+export * from "./offlineSigning";
+export * from "./performance";
+export {
+  AssetIntelligence,
   AssetCache as AssetIntelligenceCache,
   CacheInvalidator,
   TrustScorer,
@@ -41,5 +50,5 @@ export {
   AssetCacheAdapter,
   MetadataManagerAdapter,
   createMigrationAdapters,
-  MIGRATION_GUIDE
+  MIGRATION_GUIDE,
 } from "./assetIntelligence";

@@ -1,13 +1,15 @@
 # Chen Pilot — Autonomous AI Agent for Multi-Chain DeFi
-
+//WIP
 Chen Pilot is a sophisticated AI-driven gateway that enables seamless interaction with blockchain networks and DeFi protocols through natural language. It provides a unified, professional interface for managing Bitcoin assets, Stellar operations, cross-chain liquidity swaps, and lending protocols.
 
 ---
 
 ## Prerequisites
 
-- Node.js 18+
-- PostgreSQL database
+- **Node.js 18+** — required by TypeScript 5.7+, ESLint 9.x
+- **PostgreSQL 14+** — required by TypeORM 0.3.x with pg 8.x
+- **Redis 6+** — required for the distributed trade-locking system (`src/services/lock`); **not optional**
+- **pnpm 8+** — required for monorepo workspace management
 - Environment variables configured (see Configuration section)
 
 ---

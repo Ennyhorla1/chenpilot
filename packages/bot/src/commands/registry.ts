@@ -15,6 +15,7 @@ import type {
   CommandMetrics,
   CommandRegistryOptions,
 } from "./types";
+import { propagateBotCommand } from "../observability/botContext";
 import {
   dmOnlyGuard,
   roleGuard,
@@ -123,7 +124,7 @@ export class CommandRegistry {
     let replyText = "";
 
     try {
-      const reply = await handler.execute(ctx);
+      const reply = await propagateBotCommand(ctx, async () => await handler.execute(ctx));
       replyText = reply.text;
       await ctx.reply(reply.text);
     } catch (err) {

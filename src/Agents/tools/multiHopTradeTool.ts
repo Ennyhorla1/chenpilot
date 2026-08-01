@@ -41,6 +41,9 @@ const STELLAR_ASSETS: Record<string, StellarSdk.Asset> = {
   ),
 };
 
+/**
+ * Tool for evaluating and executing optimal multi-hop trading paths across Stellar DEX
+ */
 export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
   metadata: ToolMetadata = {
     name: "multi_hop_trade",
@@ -83,6 +86,7 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
         type: "boolean",
         description:
           "Whether to execute the optimal path (default: false, only evaluate)",
+      },
       policy: {
         type: "object",
         description:
@@ -100,6 +104,9 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
 
   private horizonServer: StellarSdk.Horizon.Server;
 
+  /**
+   * Initialize the multi-hop trade tool with Stellar Horizon server
+   */
   constructor() {
     super();
     this.horizonServer = new StellarSdk.Horizon.Server(
@@ -107,6 +114,12 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     );
   }
 
+  /**
+   * Execute a multi-hop trade evaluation or submission
+   * @param payload - The trade payload with operation, assets, amount, and optional policy
+   * @param userId - The user executing the trade
+   * @returns ToolResult with route information or transaction result
+   */
   async execute(
     payload: MultiHopTradePayload,
     userId: string
@@ -162,6 +175,15 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     }
   }
 
+  /**
+   * Evaluate optimal multi-hop route without executing
+   * @param sourceAsset - The source Stellar asset
+   * @param destAsset - The destination Stellar asset
+   * @param payload - Original trade payload
+   * @param policy - Route policy constraints
+   * @param userId - User ID
+   * @returns ToolResult with best and alternative paths
+   */
   private async evaluateRoute(
     sourceAsset: StellarSdk.Asset,
     destAsset: StellarSdk.Asset,
@@ -196,6 +218,15 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     }
   }
 
+  /**
+   * Execute the optimal multi-hop trade route
+   * @param sourceAsset - The source Stellar asset
+   * @param destAsset - The destination Stellar asset
+   * @param payload - Original trade payload
+   * @param policy - Route policy constraints
+   * @param userId - User ID
+   * @returns ToolResult with transaction result
+   */
   private async executeRoute(
     sourceAsset: StellarSdk.Asset,
     destAsset: StellarSdk.Asset,
@@ -269,12 +300,12 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     }
   }
 
-      return {
-        action: "multi_hop_trade",
-        status: "error",
-        error:
-          error instanceof Error ? error.message : "Unknown error occurred",
-      };
+  /**
+   * Handle path finding errors including policy violations
+   * @param err - The error object
+   * @param action - The action being performed
+   * @returns ToolResult with error details
+   */
   private handlePathError(err: unknown, action: string): ToolResult {
     if (err instanceof RoutePolicyViolationError) {
       logger.warn("Route policy violation", { reason: err.message });
@@ -290,6 +321,11 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     );
   }
 
+  /**
+   * Serialize a TradePath to a plain object for response
+   * @param path - The trade path to serialize
+   * @returns Plain object with path details
+   */
   private serializePath(path: TradePath): Record<string, unknown> {
     return {
       route: path.route,
@@ -302,6 +338,12 @@ export class MultiHopTradeTool extends BaseTool<MultiHopTradePayload> {
     };
   }
 
+  /**
+   * Get Stellar keypair for a user from stored accounts
+   * @param userId - The user ID
+   * @returns Stellar keypair
+   * @throws Error if account not found
+   */
   private getKeypair(userId: string): StellarSdk.Keypair {
     const accounts = accountsData as StellarAccountData[];
     const account = accounts.find((a) => a.userId === userId);

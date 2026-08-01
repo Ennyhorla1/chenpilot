@@ -153,7 +153,7 @@ export class EquilibreAdapter extends DeFiAdapter implements SwapCapability, Liq
       );
 
       const positions: PositionResult[] = (response.positions || []).map(
-        (pos: any) => ({
+        (pos: { token: string; amount: string; valueUSD?: number; apy?: number }) => ({
           token: pos.token,
           amount: pos.amount,
           valueUSD: pos.valueUSD || 0,

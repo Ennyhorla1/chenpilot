@@ -1,14 +1,1 @@
-node_modules
-dist
-.env
 .env.local
-src/Auth/accounts.json
-logs/
-coverage/
-
-.agent/
-.agents/
-issue.md
-COMMIT.md
-contracts/target
-target

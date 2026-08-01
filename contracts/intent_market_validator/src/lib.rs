@@ -1,5 +1,6 @@
 #![no_std]
 use soroban_sdk::{contract, contractimpl, contracttype, Address, Env, symbol_short};
+use contract_failure::{fail, FailureReason};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,7 +58,7 @@ pub struct IntentMarketValidatorContract;
 impl IntentMarketValidatorContract {
     pub fn initialize(env: Env, threshold_bps: u32) {
         if env.storage().instance().has(&DataKey::Config) {
-            panic!("Already initialized");
+            fail(&env, FailureReason::AlreadyInitialized);
         }
         let config = ValidationConfig { threshold_bps };
         env.storage().instance().set(&DataKey::Config, &config);
@@ -75,10 +76,14 @@ impl IntentMarketValidatorContract {
 
     pub fn validate(env: Env, intent_value: i128, market_value: i128) -> bool {
         if intent_value <= 0 || market_value <= 0 {
-            panic!("Invalid values");
+            fail(&env, FailureReason::InvalidArgument);
         }
 
-        let config: ValidationConfig = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
+        let config: ValidationConfig = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
 
         let diff = if market_value > intent_value {
             market_value - intent_value
@@ -88,9 +93,9 @@ impl IntentMarketValidatorContract {
 
         let deviation_bps = diff
             .checked_mul(10000)
-            .expect("Deviation math overflow")
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError))
             .checked_div(intent_value)
-            .expect("Deviation math division error");
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
 
         if deviation_bps > config.threshold_bps as i128 {
             env.events().publish(
@@ -104,14 +109,18 @@ impl IntentMarketValidatorContract {
                     deviation_bps,
                 },
             );
-            panic!("Intent vs Market: deviation exceeds threshold");
+            fail(&env, FailureReason::PriceDeviationExceedsThreshold);
         }
 
         true
     }
 
     pub fn update_config(env: Env, config: ValidationConfig) {
-        let _current: ValidationConfig = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
+        let _current: ValidationConfig = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         env.storage().instance().set(&DataKey::Config, &config);
 
         env.events().publish(
@@ -126,7 +135,10 @@ impl IntentMarketValidatorContract {
     }
 
     pub fn get_config(env: Env) -> ValidationConfig {
-        env.storage().instance().get(&DataKey::Config).expect("Not initialized")
+        env.storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized))
     }
 }
 

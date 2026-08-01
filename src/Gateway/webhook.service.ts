@@ -274,7 +274,7 @@ export class StellarWebhookService {
         payload.data.transaction_hash
       );
 
-      await jobQueueService.enqueue({
+      await jobQueueService.enqueueWithContext({
         queue: "side-effects",
         jobType: "funding.auto_deploy",
         userId: updatedUser.id,

@@ -7,39 +7,49 @@ export const EXECUTION_ID_HEADER = "x-execution-id";
 export const ROOT_EXECUTION_ID_HEADER = "x-root-execution-id";
 export const PARENT_EXECUTION_ID_HEADER = "x-parent-execution-id";
 
-export interface ObservabilityContext {
+export type Transport = "http" | "websocket" | "queue" | "bot";
+
+export interface ExecutionContext {
   requestId: string;
   executionId: string;
   rootExecutionId: string;
   parentExecutionId?: string;
   userId?: string;
-  operationName?: string;
-  component?: string;
+  roles?: string[];
+  transport: Transport;
+  path?: string;
+  method?: string;
+  ip?: string;
+  userAgent?: string;
   queueName?: string;
   jobId?: string;
+  messageId?: string;
+  chatId?: string;
+  operationName?: string;
+  component?: string;
+  metadata?: Record<string, unknown>;
 }
+
+export type ObservabilityContext = ExecutionContext;
 
 type HeaderValue = string | string[] | undefined;
 
-const storage = new AsyncLocalStorage<ObservabilityContext>();
+const storage = new AsyncLocalStorage<ExecutionContext>();
 
 function firstHeaderValue(value: HeaderValue): string | undefined {
   if (Array.isArray(value)) {
     return value[0];
   }
-
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-export function getObservabilityContext():
-  | ObservabilityContext
-  | undefined {
+export function getExecutionContext(): ExecutionContext | undefined {
   return storage.getStore();
 }
 
-export function createObservabilityContext(
-  partial: Partial<ObservabilityContext> = {}
-): ObservabilityContext {
+export function createExecutionContext(
+  partial: Partial<ExecutionContext> = {}
+): ExecutionContext {
   const requestId = partial.requestId || randomUUID();
   const executionId = partial.executionId || randomUUID();
   const rootExecutionId =
@@ -51,19 +61,28 @@ export function createObservabilityContext(
     rootExecutionId,
     parentExecutionId: partial.parentExecutionId,
     userId: partial.userId,
-    operationName: partial.operationName,
-    component: partial.component,
+    roles: partial.roles,
+    transport: partial.transport || "http",
+    path: partial.path,
+    method: partial.method,
+    ip: partial.ip,
+    userAgent: partial.userAgent,
     queueName: partial.queueName,
     jobId: partial.jobId,
+    messageId: partial.messageId,
+    chatId: partial.chatId,
+    operationName: partial.operationName,
+    component: partial.component,
+    metadata: partial.metadata,
   };
 }
 
-export function runWithObservabilityContext<T>(
-  context: Partial<ObservabilityContext>,
+export function runWithExecutionContext<T>(
+  context: Partial<ExecutionContext>,
   callback: () => T
 ): T {
-  const current = getObservabilityContext();
-  const nextContext = createObservabilityContext({
+  const current = getExecutionContext();
+  const nextContext = createExecutionContext({
     ...current,
     ...context,
     requestId: context.requestId || current?.requestId,
@@ -75,10 +94,10 @@ export function runWithObservabilityContext<T>(
 }
 
 export function withChildExecution<T>(
-  context: Partial<ObservabilityContext>,
+  context: Partial<ExecutionContext>,
   callback: () => T
 ): T {
-  const current = getObservabilityContext();
+  const current = getExecutionContext();
   const requestId = context.requestId || current?.requestId || randomUUID();
   const parentExecutionId =
     context.parentExecutionId || current?.executionId || undefined;
@@ -88,7 +107,7 @@ export function withChildExecution<T>(
     parentExecutionId ||
     randomUUID();
 
-  return runWithObservabilityContext(
+  return runWithExecutionContext(
     {
       ...current,
       ...context,
@@ -101,10 +120,10 @@ export function withChildExecution<T>(
   );
 }
 
-export function updateObservabilityContext(
-  updates: Partial<ObservabilityContext>
+export function updateExecutionContext(
+  updates: Partial<ExecutionContext>
 ): void {
-  const current = getObservabilityContext();
+  const current = getExecutionContext();
   if (!current) {
     return;
   }
@@ -112,9 +131,9 @@ export function updateObservabilityContext(
   Object.assign(current, updates);
 }
 
-export function extractObservabilityContextFromHeaders(headers: {
+export function extractContextFromHeaders(headers: {
   [key: string]: HeaderValue;
-}): Partial<ObservabilityContext> {
+}): Partial<ExecutionContext> {
   const requestId =
     firstHeaderValue(headers[REQUEST_ID_HEADER]) ||
     firstHeaderValue(headers[CORRELATION_ID_HEADER]);
@@ -133,9 +152,9 @@ export function extractObservabilityContextFromHeaders(headers: {
 }
 
 export function buildCorrelationHeaders(
-  context: Partial<ObservabilityContext> = getObservabilityContext() || {}
+  context: Partial<ExecutionContext> = getExecutionContext() || {}
 ): Record<string, string> {
-  const resolved = createObservabilityContext(context);
+  const resolved = createExecutionContext(context);
 
   return {
     [REQUEST_ID_HEADER]: resolved.requestId,
@@ -148,8 +167,8 @@ export function buildCorrelationHeaders(
   };
 }
 
-export function getObservabilityLogFields(): Record<string, string> {
-  const context = getObservabilityContext();
+export function getLogFields(): Record<string, string> {
+  const context = getExecutionContext();
   if (!context) {
     return {};
   }
@@ -158,31 +177,52 @@ export function getObservabilityLogFields(): Record<string, string> {
     requestId: context.requestId,
     executionId: context.executionId,
     rootExecutionId: context.rootExecutionId,
+    transport: context.transport,
   };
 
   if (context.parentExecutionId) {
     fields.parentExecutionId = context.parentExecutionId;
   }
-
   if (context.userId) {
     fields.userId = context.userId;
   }
-
+  if (context.roles && context.roles.length > 0) {
+    fields.roles = context.roles.join(",");
+  }
   if (context.operationName) {
     fields.operationName = context.operationName;
   }
-
   if (context.component) {
     fields.component = context.component;
   }
-
   if (context.queueName) {
     fields.queueName = context.queueName;
   }
-
   if (context.jobId) {
     fields.jobId = context.jobId;
+  }
+  if (context.messageId) {
+    fields.messageId = context.messageId;
+  }
+  if (context.chatId) {
+    fields.chatId = context.chatId;
+  }
+  if (context.path) {
+    fields.path = context.path;
+  }
+  if (context.method) {
+    fields.method = context.method;
+  }
+  if (context.ip) {
+    fields.ip = context.ip;
   }
 
   return fields;
 }
+
+export const getObservabilityContext = getExecutionContext;
+export const createObservabilityContext = createExecutionContext;
+export const runWithObservabilityContext = runWithExecutionContext;
+export const updateObservabilityContext = updateExecutionContext;
+export const extractObservabilityContextFromHeaders = extractContextFromHeaders;
+export const getObservabilityLogFields = getLogFields;

@@ -1,5 +1,6 @@
 #![no_std]
-use soroban_sdk::{contract, contractimpl, contracttype, contractclient, Address, Env, Vec, symbol_short};
+use soroban_sdk::{contract, contractimpl, contracttype, contractclient, Address, Bytes, Env, Vec, symbol_short};
+use contract_failure::{fail, FailureReason};
 
 // ---------------------------------------------------------------------------
 // Reusable protected-execution primitive
@@ -106,7 +107,7 @@ pub struct LiquidityVaultContract;
 impl LiquidityVaultContract {
     pub fn initialize(env: Env, admin: Address, oracle: Address, threshold_bps: u32) {
         if env.storage().instance().has(&DataKey::Config) {
-            panic!("Already initialized");
+            fail(&env, FailureReason::AlreadyInitialized);
         }
         let config = Config { admin: admin.clone(), oracle: oracle.clone(), threshold_bps };
         env.storage().instance().set(&DataKey::Config, &config);
@@ -125,7 +126,11 @@ impl LiquidityVaultContract {
     }
 
     pub fn update_config(env: Env, config: Config) {
-        let current: Config = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
+        let current: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         current.admin.require_auth();
         env.storage().instance().set(&DataKey::Config, &config);
 
@@ -149,14 +154,17 @@ impl LiquidityVaultContract {
         token_in: Address,
         token_out: Address,
         amount_in: i128,
-        _min_amount_out: i128,
-        intent_price: i128,
-    ) {
-        if amount_in <= 0 || intent_price <= 0 {
-            panic!("Invalid parameters");
+        ctx: ExecutionContext,
+    ) -> ExecutionResult {
+        if amount_in <= 0 || ctx.intent_price <= 0 {
+            fail(&env, FailureReason::InvalidArgument);
         }
 
-        let config: Config = env.storage().instance().get(&DataKey::Config).expect("Not initialized");
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
         let current_ledger = env.ledger().sequence();
 
         // Deadline check
@@ -170,17 +178,21 @@ impl LiquidityVaultContract {
         }
 
         let oracle = PriceOracleClient::new(&env, &config.oracle);
-        let p_in = oracle.get_price(&token_in).unwrap_or_else(|| panic!("Oracle price missing for token_in"));
-        let p_out = oracle.get_price(&token_out).unwrap_or_else(|| panic!("Oracle price missing for token_out"));
+        let p_in = oracle
+            .get_price(&token_in)
+            .unwrap_or_else(|| fail(&env, FailureReason::OraclePriceMissing));
+        let p_out = oracle
+            .get_price(&token_out)
+            .unwrap_or_else(|| fail(&env, FailureReason::OraclePriceMissing));
 
         let p_in_norm = normalize_price(p_in.price, p_in.decimals, 8);
         let p_out_norm = normalize_price(p_out.price, p_out.decimals, 8);
 
         let market_price = p_in_norm
             .checked_mul(100_000_000)
-            .expect("Price math overflow")
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError))
             .checked_div(p_out_norm)
-            .expect("Price math division error");
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
 
         let diff = if market_price > ctx.intent_price {
             market_price - ctx.intent_price
@@ -190,9 +202,9 @@ impl LiquidityVaultContract {
 
         let deviation_bps = diff
             .checked_mul(10000)
-            .expect("Deviation math overflow")
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError))
             .checked_div(ctx.intent_price)
-            .expect("Deviation math division error");
+            .unwrap_or_else(|| fail(&env, FailureReason::ArithmeticError));
         
         // 5. Enforce protection threshold
         if deviation_bps > config.threshold_bps as i128 {
@@ -232,7 +244,17 @@ impl LiquidityVaultContract {
         min_amount_out: i128,
         intent_price: i128,
     ) {
-        let caller = Address::generate(&env); // In practice, resolve from tx auth
+        if amount_in <= 0 || min_amount_out <= 0 || intent_price <= 0 {
+            fail(&env, FailureReason::InvalidArgument);
+        }
+
+        let config: Config = env
+            .storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized));
+
+        let caller = env.current_contract_address();
         let ctx = ExecutionContext {
             caller,
             operation: Bytes::from_slice(&env, b"swap"),
@@ -242,9 +264,9 @@ impl LiquidityVaultContract {
             deadline_ledger: env.ledger().sequence() + 1000,
         };
 
-        let result = Self::execute_protected(env, token_in, token_out, amount_in, ctx);
+        let result = Self::execute_protected(env.clone(), token_in.clone(), token_out.clone(), amount_in, ctx);
         if !result.approved {
-            panic!("Liquidity Protection: {}", std::str::from_utf8(result.reason.as_slice()).unwrap_or("unknown"));
+            fail(&env, FailureReason::LiquidityProtectionViolation);
         }
 
         env.events().publish(
@@ -256,14 +278,17 @@ impl LiquidityVaultContract {
                 token_in,
                 token_out,
                 amount_in,
-                market_price,
+                market_price: result.market_price,
             },
         );
     }
 
     /// Returns the current configuration.
     pub fn get_config(env: Env) -> Config {
-        env.storage().instance().get(&DataKey::Config).expect("Not initialized")
+        env.storage()
+            .instance()
+            .get(&DataKey::Config)
+            .unwrap_or_else(|| fail(&env, FailureReason::NotInitialized))
     }
 }
 

@@ -1,9 +1,5 @@
 export type ParameterType =
-  | "string"
-  | "number"
-  | "boolean"
-  | "object"
-  | "array";
+  "string" | "number" | "boolean" | "object" | "array";
 
 export interface ParameterDefinition {
   type: ParameterType;
@@ -67,5 +63,5 @@ export interface ToolRegistryEntry {
   enabled: boolean;
   registeredAt: Date;
   lastUsed?: Date;
-  governanceMetadata?: Record<string, any>;
+  governanceMetadata?: Record<string, unknown>;
 }

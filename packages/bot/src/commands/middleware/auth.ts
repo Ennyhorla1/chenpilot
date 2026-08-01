@@ -11,8 +11,19 @@ import {
   ErrorCode,
 } from '../types.js';
 
-export function createAuthMiddleware(authService: any): CommandMiddleware<any> {
-  return async (context: TypedCommandContext<any>, next) => {
+/**
+ * Minimal shape this middleware needs from an auth service. Real
+ * implementations (e.g. the backend-integration auth service) may expose
+ * more, but this is the only method the middleware calls.
+ */
+export interface AuthService {
+  verifyUser(userId: string): Promise<boolean>;
+}
+
+export function createAuthMiddleware<TInput>(
+  authService: AuthService
+): CommandMiddleware<TInput> {
+  return async (context: TypedCommandContext<TInput>, next) => {
     try {
       const isAuthenticated = await authService.verifyUser(context.userId);
       

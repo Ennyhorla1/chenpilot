@@ -14,6 +14,9 @@ interface StrategyRegistryPayload extends Record<string, unknown> {
 
 const POOL_ID_REGEX = /^[0-9a-f]{64}$/i;
 
+/**
+ * Tool for interacting with the Yield-Aggregator Strategy Registry to vote on Stellar DEX pools or check verification
+ */
 export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
   metadata: ToolMetadata = {
     name: "strategy_registry",
@@ -51,6 +54,11 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     permissions: ["user"],
   };
 
+  /**
+   * Validate the strategy registry payload
+   * @param payload - The payload with action, poolId, and aiAgent
+   * @returns Validation result with errors array
+   */
   validate(payload: StrategyRegistryPayload): {
     valid: boolean;
     errors: string[];
@@ -73,6 +81,11 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     return { valid: errors.length === 0, errors };
   }
 
+  /**
+   * Execute a strategy registry action (vote, get_strategy, is_verified, policy_preview)
+   * @param payload - The payload with action and parameters
+   * @returns ToolResult with registry action result
+   */
   async execute(payload: StrategyRegistryPayload): Promise<ToolResult> {
     const validation = this.validate(payload);
     if (!validation.valid) {
@@ -181,6 +194,12 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     }
   }
 
+  /**
+   * Evaluate off-chain policy rules for voting approval
+   * @param poolId - The pool ID to vote on
+   * @param aiAgent - The AI agent public key
+   * @returns Policy evaluation result
+   */
   private evaluateOffChainPolicy(
     poolId?: string,
     aiAgent?: string
@@ -194,6 +213,12 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     return { allowed: true, reason: "Policy checks passed" };
   }
 
+  /**
+   * Read the current strategy from the registry contract
+   * @param server - Soroban RPC server instance
+   * @param contractId - Registry contract ID
+   * @returns Current strategy string
+   */
   private async readCurrentStrategy(
     server: StellarSdk.SorobanRpc.Server,
     contractId: string
@@ -202,6 +227,14 @@ export class StrategyRegistryTool extends BaseTool<StrategyRegistryPayload> {
     return `strategy:${contractId.slice(0, 12)}`;
   }
 
+  /**
+   * Log a governance action to the audit log
+   * @param action - The action being performed
+   * @param poolId - Optional pool ID
+   * @param aiAgent - Optional AI agent public key
+   * @param metadata - Additional metadata for the audit entry
+   * @param success - Whether the action was successful
+   */
   private async auditAction(
     action: string,
     poolId: string | undefined,

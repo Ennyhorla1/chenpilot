@@ -200,7 +200,7 @@ export class MultiHopPathFinder {
    * Dimensionless and comparable across all paths for the same trade.
    */
   private convertStrictReceivePath(
-    record: any,
+    record: { path: { map: (fn: (a: string) => StellarSdk.Asset) => StellarSdk.Asset[] }; source_amount: string; destination_amount: string },
     sourceAsset: StellarSdk.Asset,
     destinationAsset: StellarSdk.Asset
   ): TradePath {

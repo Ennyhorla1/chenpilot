@@ -1,9 +1,9 @@
 import { NextFunction, Request, Response } from "express";
 import {
   buildCorrelationHeaders,
-  createObservabilityContext,
-  extractObservabilityContextFromHeaders,
-  runWithObservabilityContext,
+  createExecutionContext,
+  extractContextFromHeaders,
+  runWithExecutionContext,
 } from "./context";
 
 export function observabilityMiddleware(
@@ -11,8 +11,16 @@ export function observabilityMiddleware(
   res: Response,
   next: NextFunction
 ): void {
-  const initialContext = createObservabilityContext({
-    ...extractObservabilityContextFromHeaders(req.headers),
+  const initialContext = createExecutionContext({
+    ...extractContextFromHeaders(req.headers),
+    transport: "http",
+    method: req.method,
+    path: req.path,
+    ip:
+      (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+      req.socket.remoteAddress ||
+      undefined,
+    userAgent: req.headers["user-agent"] as string | undefined,
     operationName: `${req.method} ${req.path}`,
     component: "http",
   });
@@ -27,15 +35,9 @@ export function observabilityMiddleware(
     res.setHeader(headerName, value);
   });
 
-  runWithObservabilityContext(initialContext, () => next());
+  runWithExecutionContext(initialContext, () => next());
 }
 
-/**
- * Wrap an async tool/queue/LLM/blockchain call so its execution is
- * recorded as a child span within the current trace. If there is no
- * active trace context, the callback still runs and a best-effort
- * trace span is created.
- */
 export function withTrace<T>(
   options: {
     kind: "tool" | "queue" | "llm" | "blockchain" | "custom";
